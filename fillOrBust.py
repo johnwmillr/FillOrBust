@@ -1,4 +1,5 @@
 import numpy as np
+import random
 import time
 
 class Turn(object):
@@ -27,14 +28,30 @@ class Turn(object):
     def stop(self):
         assert not self._bust, "You can't stop, you already busted."
         self._stopped = True
+        self._bust = False
+        self._fill = False
+
+    def __set_status__(self, outcome):
+        if outcome.lower() == "fill":
+            self._fill = True
+            self._bust = False
+            self._stopped = False
+        elif outcome.lower() == "bust":
+            self._fill = False
+            self._bust = True
+            self._stopped = False
+        elif outcome.lower() == "stop":
+            self._fill = False
+            self._bust = False
+            self._stopped = True
+
 
     def calcScore(self):      
-
-        # Check for a straight
+        # Check for a straigh
         if self._dice_remaining == 6:
             if (self._dice==[1,2,3,4,5,6]).all():
                 self._score, self._dice_remaining = 1500, 0            
-                self._fill, self._bust = True, False
+                self.__set_status__("fill")
                 return                    
         dice_remaining = self._dice_remaining
 
@@ -60,12 +77,12 @@ class Turn(object):
 
         if score == 0:
             self._score, self._dice_remaining = 0, 0
-            self._fill, self._bust = False, True
+            self.__set_status__("bust")
         else:
             self._score = score + self._score
             self._dice_remaining = dice_remaining
             if self._dice_remaining == 0:
-                self._fill, self._bust = True, False
+                self.__set_status__("fill")
 
     def __restart__(self):
         self.__init__()
@@ -83,9 +100,25 @@ class Turn(object):
 class Card(object):
 
     def __init__(self, name, bonus, requires_fill):
-        self._name = name        
+        self.name = name        
         self._bonus = bonus
         self._requires_fill = requires_fill
+
+    def __str__(self):
+        return self.name
+
+    def __repr__(self):
+        return self.name
+
+    def __eq__(self, other_card):
+        result = False
+        if type(self) == type(other_card):
+            if self.name == other_card.name:
+                result = True
+        elif type(other_card) == type(""):
+            if self.name == other_card:
+                result = True
+        return result
 
     @property
     def bonus(self):
@@ -93,56 +126,68 @@ class Card(object):
 
 
 class Deck(object):
+    NAMES   = ["Bonus300","Bonus400","Bonus500","Fill1000",
+               "DoubleTrouble","NoDice","MustBust","Vengence"]
+    FREQS = [5,5,5,4,2,9,3,3]
+    BONUSES = [300,400,500,1000,0,0,0,0]
+    REQUIRES_FILL = [False,False,False,True,True,False,False,True]
 
-    card_types = ["Bonus300","Bonus400","Bonus500","FillOneThousand","DoubleTrouble","NoDice","MustBust","Vengence"]
-    card_counts = [5,5,5,4,2,9,3,3]
-    cards = dict(zip(card_types,card_counts))
+    # Populate a list with all of the cards
+    ALL_CARDS = []    
+    for name, bonus, fill in zip(NAMES, BONUSES, REQUIRES_FILL):
+        for i in range(FREQS[NAMES.index(name)]):
+            ALL_CARDS.append(Card(name, bonus, fill))
 
     def __init__(self):
-        self._current_card_num = 1
-        self._cards = []        
+        self.cards = self.ALL_CARDS
+        self.num_cards = len(self.cards)
+        self.shuffle() # Shuffle the deck
 
-        self._num_cards = len(self._cards)
-
-        self.shuffle()
+    def shuffle(self):
+        random.shuffle(self.cards)
 
     def draw(self):
-        if self._current_card_num <= self._num_cards:
-            return self._cards[self._current_card_num]
+        if self.num_cards > 0:
+            return self.cards.pop()
         else:
             self.shuffle()
-            self.draw()
 
-    # def shuffle(self):
-
-
-
+    def __repr__(self):
+        return "{n_cards} cards remaining.".format(n_cards=len(self.cards))
 
 def main():
+    deck = Deck()
     player = Turn()
     bust_count, fill_count, stop_count = 0,0,0
     bonus_values = [300, 400, 500]
 
-    n_turns = 5000
+    n_turns = 5
     scores = np.zeros((n_turns,1))
     for n in np.arange(n_turns):
-        # print('\n///////////// New Turn /////////////')
+        print('\n///////////// New Turn /////////////')
 
-        # Draw a card
-        card = Card('Garden Variety',np.random.choice(bonus_values),False)
+        # Draw a card from the deck
+        card = deck.draw()
+        print(card)
+        # card = Card('Garden Variety',np.random.choice(bonus_values),False)
 
-        while player._dice_remaining > 0 and not player._stopped:            
+        if card == "NoDice":            
+            player.__set_status__("bust")
+        elif card.name in ["Vengence","DoubleTrouble"]:
+            pass
+        else:
+            while player._dice_remaining > 0 and not player._stopped:            
 
-            # Implement some strategy
-            # if player._dice_remaining <= 2:
-            #     player.stop()
-            #     break        
+                # Implement some strategy
+                # if player._dice_remaining <= 2:
+                #     player.stop()
+                #     break        
 
-            player.roll()
-            # print(player)
+                player.roll()
+                print(player)            
 
         if player._fill:
-            player._score = player._score# + card.bonus
+            player._score = player._score + card.bonus
 
         if np.mod(n,np.round(0.2*n_turns))==0: print("{0}/{1}".format(n,n_turns))
         scores[n,0] = player.score
