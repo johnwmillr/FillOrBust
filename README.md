@@ -1,3 +1,6 @@
-[![Let the good times roll\!](/Media/FillOrBust.png)](https://fillorbust.com)
+## [Let the good times roll\!](https://fillorbust.com)
 
-Let's play Fill or Bust!
+### Usage
+```
+$python fillOrBust.py
+```
