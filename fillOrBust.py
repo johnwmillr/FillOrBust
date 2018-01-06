@@ -20,7 +20,7 @@ class Turn(object):
         assert not self._fill, "Can't roll again, you filled."
         assert not self._stopped, "Can't roll again, you stopped."
         assert self._dice_remaining > 0 and self._dice_remaining <= 6, "Number of dice must be between 1 and 6."        
-        self._dice = np.sort(np.random.randint(1,6,self._dice_remaining))
+        self._dice = np.sort(np.random.randint(1,7,self._dice_remaining))
         self.calcScore()
         return self
 
@@ -30,24 +30,13 @@ class Turn(object):
 
     def calcScore(self):      
 
+        # Check for a straight
         if self._dice_remaining == 6:
             if (self._dice==[1,2,3,4,5,6]).all():
                 self._score, self._dice_remaining = 1500, 0            
                 self._fill, self._bust = True, False
-                return                
-            else:
-                dice_remaining = self._dice_remaining                
-        else:
-            dice_remaining = self._dice_remaining
-
-
-        # # Check for a straight
-        # if len(np.unique(self._dice))==6:
-        #     self._score, self._dice_remaining = 1500, 0            
-        #     self._fill, self._bust = True, False
-        #     return
-        # else:
-        #     dice_remaining = self._dice_remaining
+                return                    
+        dice_remaining = self._dice_remaining
 
         # Count of each number's occurence
         counts = np.histogram(self._dice, bins=6, range=(1,6))[0]
@@ -91,23 +80,69 @@ class Turn(object):
     def __repr__(self):
         return "Dice: " + str(self._dice) + ", current score: " + str(self._score) + ", dice remaining: " + str(self._dice_remaining)
 
+class Card(object):
+
+    def __init__(self, name, bonus, requires_fill):
+        self._name = name        
+        self._bonus = bonus
+        self._requires_fill = requires_fill
+
+    @property
+    def bonus(self):
+        return self._bonus
+
+
+class Deck(object):
+
+    card_types = ["Bonus300","Bonus400","Bonus500","FillOneThousand","DoubleTrouble","NoDice","MustBust","Vengence"]
+    card_counts = [5,5,5,4,2,9,3,3]
+    cards = dict(zip(card_types,card_counts))
+
+    def __init__(self):
+        self._current_card_num = 1
+        self._cards = []        
+
+        self._num_cards = len(self._cards)
+
+        self.shuffle()
+
+    def draw(self):
+        if self._current_card_num <= self._num_cards:
+            return self._cards[self._current_card_num]
+        else:
+            self.shuffle()
+            self.draw()
+
+    # def shuffle(self):
+
+
 
 
 def main():
     player = Turn()
     bust_count, fill_count, stop_count = 0,0,0
+    bonus_values = [300, 400, 500]
 
-    n_turns = 1000
+    n_turns = 5000
     scores = np.zeros((n_turns,1))
     for n in np.arange(n_turns):
+        # print('\n///////////// New Turn /////////////')
+
+        # Draw a card
+        card = Card('Garden Variety',np.random.choice(bonus_values),False)
+
         while player._dice_remaining > 0 and not player._stopped:            
 
             # Implement some strategy
-            if player._dice_remaining <= 2:
-                player.stop()
-                break        
+            # if player._dice_remaining <= 2:
+            #     player.stop()
+            #     break        
 
             player.roll()
+            # print(player)
+
+        if player._fill:
+            player._score = player._score# + card.bonus
 
         if np.mod(n,np.round(0.2*n_turns))==0: print("{0}/{1}".format(n,n_turns))
         scores[n,0] = player.score
@@ -123,10 +158,11 @@ def main():
 
     print("\nAfter {N} turns, the average score was: {avg_score}.".format(N=n_turns,avg_score=scores.mean()))
     print("You busted {n_busts} times, got {n_fills} fills, and stopped {n_stops} times.".format(n_busts=bust_count,n_fills=fill_count,n_stops=stop_count))
+    print("You filled {0}% of the time.".format(100*fill_count/float(bust_count+fill_count)))
 
 
 if __name__ == '__main__':
     start = time.time()
     main()
-    print(time.time() - start)
+    print("Time elapsed: {0}".format(time.time() - start))
 
