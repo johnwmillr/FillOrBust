@@ -5,55 +5,82 @@ import time
 class Turn(object):
 
     def __init__(self):
-        self._dice_remaining = 6
-        self._score = 0
-        self._dice = []
-        self._fill = False
-        self._bust = False
-        self._stopped = False
+        self._card = []
+        self._score = 0               
+        self.__set_status__("start")
         
         # Pointer values
         self.__TRIPLE_VALUES = [1000, 200, 300, 400, 500, 600]
         self.__SINGLE_VALUES = [ 100,   0,   0,   0,  50,   0]
 
+    def _set_card(self, card):
+        assert type(card) == Card, "Card input must be a Card object."
+        self._card = card
+
+    def take_turn(self):
+        # TODO: I could probably implement some strategy here
+        # TODO: I'd like to be able to draw a card from here somehow
+        while self._can_continue:
+            self.roll()
+
+            if self.score > 500 or self._dice_remaining <= 2:
+                self.__set_status__("stop")
+                break
+
+        self.finishTurn()
+
     def roll(self):
-        assert not self._bust, "Can't roll again, you busted."
-        assert not self._fill, "Can't roll again, you filled."
-        assert not self._stopped, "Can't roll again, you stopped."
-        assert self._dice_remaining > 0 and self._dice_remaining <= 6, "Number of dice must be between 1 and 6."        
-        self._dice = np.sort(np.random.randint(1,7,self._dice_remaining))
-        self.calcScore()
+        assert self._card != [], "Must first draw a card."
+        assert self._can_continue, "Can't roll again, turn over."        
+
+        # It might make sense to implement the card consequences here
+        if self._card == "NoDice":
+            self.__set_status__("bust")
+        # elif self._card.name in ["Bonus300", "Bonus400", "Bonus500", "Fill1000", "MustBust"]:
+        else:
+            self._dice = np.sort(np.random.randint(1,7,self._dice_remaining))
+            self.calcScore()
         return self
 
     def stop(self):
-        assert not self._bust, "You can't stop, you already busted."
-        self._stopped = True
-        self._bust = False
-        self._fill = False
+        assert self._can_continue, "You can't stop, your turn is over."
+        self.__set_status__("stop")
 
-    def __set_status__(self, outcome):
-        if outcome.lower() == "fill":
+    def __set_status__(self, status):
+        if status == "start":
+            self._dice_remaining = 6
+            self._dice = []
+            self._fill = False
+            self._bust = False
+            self._stopped = False 
+        elif status == "fill":
             self._fill = True
             self._bust = False
             self._stopped = False
-        elif outcome.lower() == "bust":
+        elif status == "bust":
             self._fill = False
             self._bust = True
             self._stopped = False
-        elif outcome.lower() == "stop":
+        elif status == "stop":
             self._fill = False
             self._bust = False
             self._stopped = True
 
+    @property
+    def _can_continue(self):
+        # if any([self._fill, self._bust, self._stopped]):
+        if any([self._bust, self._stopped]):
+            return False
+        else:
+            return True
 
-    def calcScore(self):      
+    def calcScore(self):
         # Check for a straigh
         if self._dice_remaining == 6:
             if (self._dice==[1,2,3,4,5,6]).all():
-                self._score, self._dice_remaining = 1500, 0            
+                self._score += 1500
                 self.__set_status__("fill")
-                return                    
-        dice_remaining = self._dice_remaining
+                return
 
         # Count of each number's occurence
         counts = np.histogram(self._dice, bins=6, range=(1,6))[0]
@@ -61,8 +88,8 @@ class Turn(object):
         # Check for three of a kind
         score = 0
         while (counts>=3).any():
-            score = score + np.dot(counts>=3, self.__TRIPLE_VALUES)
-            dice_remaining = dice_remaining - 3*sum(counts>=3)
+            score += np.dot(counts>=3, self.__TRIPLE_VALUES)
+            self._dice_remaining -= 3*sum(counts>=3)
             counts[counts>=3] = counts[counts>=3]-3
 
         # Implement some strategy
@@ -72,17 +99,26 @@ class Turn(object):
             # counts[1] = 0 # Throw back ones
 
         # Check for singles (1's and 5's)
-        score = score + np.dot(counts, self.__SINGLE_VALUES)
-        dice_remaining = dice_remaining - np.dot(counts,[1,0,0,0,1,0])
+        score += np.dot(counts, self.__SINGLE_VALUES)
+        self._dice_remaining -= np.dot(counts,[1,0,0,0,1,0])
 
+        # Determine if this roll is a fill or bust
         if score == 0:
-            self._score, self._dice_remaining = 0, 0
             self.__set_status__("bust")
         else:
             self._score = score + self._score
-            self._dice_remaining = dice_remaining
             if self._dice_remaining == 0:
-                self.__set_status__("fill")
+                if self._card.name != "MustBust":
+                    self.__set_status__("fill")
+                else:
+                    self.__set_status__("start")
+
+    def finishTurn(self):
+        # Add card bonus to score if player filled
+        if self._fill:
+            self._score += self._card.bonus
+        elif self._bust and self._card.name != "MustBust":
+            self._score = 0
 
     def __restart__(self):
         self.__init__()
@@ -92,10 +128,10 @@ class Turn(object):
         return self._score
 
     def __str__(self):
-        return "Dice: " + str(self._dice) + ", current score: " + str(self._score) + ", dice remaining: " + str(self._dice_remaining)
+        return "Card: " + str(self._card) + ", dice: " + str(self._dice) + ", current score: " + str(self._score) + ", dice remaining: " + str(self._dice_remaining)
 
     def __repr__(self):
-        return "Dice: " + str(self._dice) + ", current score: " + str(self._score) + ", dice remaining: " + str(self._dice_remaining)
+        return "Card: " + str(self._card) + ", dice: " + str(self._dice) + ", current score: " + str(self._score) + ", dice remaining: " + str(self._dice_remaining)
 
 class Card(object):
 
@@ -137,20 +173,22 @@ class Deck(object):
     for name, bonus, fill in zip(NAMES, BONUSES, REQUIRES_FILL):
         for i in range(FREQS[NAMES.index(name)]):
             ALL_CARDS.append(Card(name, bonus, fill))
+    TOTAL_CARDS = len(ALL_CARDS)
 
     def __init__(self):
         self.cards = self.ALL_CARDS
-        self.num_cards = len(self.cards)
         self.shuffle() # Shuffle the deck
+        self._n_card = 1
 
     def shuffle(self):
         random.shuffle(self.cards)
 
     def draw(self):
-        if self.num_cards > 0:
-            return self.cards.pop()
-        else:
+        if self._n_card == self.TOTAL_CARDS:
             self.shuffle()
+            self._n_card = 1
+        self._n_card += 1
+        return self.cards[self._n_card-1]
 
     def __repr__(self):
         return "{n_cards} cards remaining.".format(n_cards=len(self.cards))
@@ -159,45 +197,37 @@ def main():
     deck = Deck()
     player = Turn()
     bust_count, fill_count, stop_count = 0,0,0
-    bonus_values = [300, 400, 500]
 
-    n_turns = 5
+    n_turns = 5000
     scores = np.zeros((n_turns,1))
     for n in np.arange(n_turns):
-        print('\n///////////// New Turn /////////////')
+        # print('\n///////////// New Turn /////////////')
+        if np.mod(n,np.round(0.2*n_turns))==0: print("Turn: {0}/{1}".format(n+1,n_turns))        
 
-        # Draw a card from the deck
-        card = deck.draw()
-        print(card)
-        # card = Card('Garden Variety',np.random.choice(bonus_values),False)
+        while player._can_continue:
+            # Draw a card from the deck
+            player._set_card(deck.draw())
+            player.take_turn()
 
-        if card == "NoDice":            
-            player.__set_status__("bust")
-        elif card.name in ["Vengence","DoubleTrouble"]:
-            pass
-        else:
-            while player._dice_remaining > 0 and not player._stopped:            
+            # Implement some strategy
+            # if player._dice_remaining <= 2:
+            #     player.stop()
+            #     break        
 
-                # Implement some strategy
-                # if player._dice_remaining <= 2:
-                #     player.stop()
-                #     break        
+            # player.roll()
+            # print(player)
 
-                player.roll()
-                print(player)            
+        # print("Final score: " + str(player.score))
 
-        if player._fill:
-            player._score = player._score + card.bonus
-
-        if np.mod(n,np.round(0.2*n_turns))==0: print("{0}/{1}".format(n,n_turns))
         scores[n,0] = player.score
 
-        if player._bust:
-            bust_count += 1
         if player._fill:
+            print("fill")
             fill_count += 1
-        if player._stopped:
-            stop_count += 1
+        elif player._bust:
+            bust_count += 1
+        elif player._stopped:
+            stop_count +=1
 
         player.__restart__()
 
