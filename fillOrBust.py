@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import time
+from collections import Counter
 
 class Turn(object):
 
@@ -23,9 +24,8 @@ class Turn(object):
         while self._can_continue:
             self.roll()
 
-            if self.score > 500 or self._dice_remaining <= 2:
+            if self.score > 500 or self._dice_remaining <= 2 or self._fill:
                 self.__set_status__("stop")
-                break
 
         self.finishTurn()
 
@@ -68,7 +68,6 @@ class Turn(object):
 
     @property
     def _can_continue(self):
-        # if any([self._fill, self._bust, self._stopped]):
         if any([self._bust, self._stopped]):
             return False
         else:
@@ -83,7 +82,7 @@ class Turn(object):
                 return
 
         # Count of each number's occurence
-        counts = np.histogram(self._dice, bins=6, range=(1,6))[0]
+        counts = np.array([Counter(self._dice)[k] for k in range(1,7)])
 
         # Check for three of a kind
         score = 0
@@ -201,28 +200,16 @@ def main():
     n_turns = 5000
     scores = np.zeros((n_turns,1))
     for n in np.arange(n_turns):
-        # print('\n///////////// New Turn /////////////')
-        if np.mod(n,np.round(0.2*n_turns))==0: print("Turn: {0}/{1}".format(n+1,n_turns))        
+        if np.mod(n,np.round(0.2*n_turns))==0: print("Turn: {:>4}/{:>4}".format(n,n_turns))
 
         while player._can_continue:
             # Draw a card from the deck
             player._set_card(deck.draw())
             player.take_turn()
 
-            # Implement some strategy
-            # if player._dice_remaining <= 2:
-            #     player.stop()
-            #     break        
-
-            # player.roll()
-            # print(player)
-
-        # print("Final score: " + str(player.score))
-
         scores[n,0] = player.score
 
         if player._fill:
-            print("fill")
             fill_count += 1
         elif player._bust:
             bust_count += 1
@@ -233,7 +220,7 @@ def main():
 
     print("\nAfter {N} turns, the average score was: {avg_score}.".format(N=n_turns,avg_score=scores.mean()))
     print("You busted {n_busts} times, got {n_fills} fills, and stopped {n_stops} times.".format(n_busts=bust_count,n_fills=fill_count,n_stops=stop_count))
-    print("You filled {0}% of the time.".format(100*fill_count/float(bust_count+fill_count)))
+    print("You busted {0}% of the time.".format(100*bust_count/float(n_turns)))
 
 
 if __name__ == '__main__':
