@@ -159,8 +159,8 @@ class Card(object):
     def bonus(self):
         return self._bonus
 
-
 class Deck(object):
+
     NAMES   = ["Bonus300","Bonus400","Bonus500","Fill1000",
                "DoubleTrouble","NoDice","MustBust","Vengence"]
     FREQS = [5,5,5,4,2,9,3,3]
@@ -174,23 +174,55 @@ class Deck(object):
             ALL_CARDS.append(Card(name, bonus, fill))
     TOTAL_CARDS = len(ALL_CARDS)
 
-    def __init__(self):
-        self.cards = self.ALL_CARDS
-        self.shuffle() # Shuffle the deck
-        self._n_card = 1
+    class Node(object):
 
-    def shuffle(self):
-        random.shuffle(self.cards)
+        def __init__(self, value=None, next=None):
+            self.value = value
+            self.next = next
+
+        def __repr__(self):
+            return str(self.value)
+
+    def __init__(self):
+        self.top = None
+        self.length = 0
+        self.shuffle()
+
+    def _push(self, value):
+        assert isinstance(value, Card), "New value must be of type Card."
+        new_top = self.Node(value, next=self.top)
+        self.top = new_top
+        self.length += 1
+
+    def _pop(self):
+        assert self.top is not None and self.length > 0, "Can't pop from empty Deck."
+        old_top = self.top
+        self.top = old_top.next
+        self.length -= 1
+        return old_top.value
 
     def draw(self):
-        if self._n_card == self.TOTAL_CARDS:
+        if self.top is None or self.length == 0:
             self.shuffle()
-            self._n_card = 1
-        self._n_card += 1
-        return self.cards[self._n_card-1]
+        return self._pop()
+
+    def peek(self):
+        if self.top is None:
+            return None
+        else:
+            return self.top.value
+
+    def shuffle(self):
+        # print('Shuffle!')
+        random.shuffle(self.ALL_CARDS)
+        for card in self.ALL_CARDS:
+             self._push(card)
 
     def __repr__(self):
-        return "{n_cards} cards remaining.".format(n_cards=len(self.cards))
+        if self.length == 1:
+            return "Deck with {} card  remaining.".format(self.length)
+        else:
+            return "Deck with {} cards remaining.".format(self.length)
 
 def main():
     deck = Deck()
