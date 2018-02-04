@@ -3,6 +3,12 @@ import random
 import time
 from collections import Counter
 
+class Player(object):
+
+    def __init__(self, strategy='normal'):
+        self.score = 0
+        self.strategy = strategy
+
 class Turn(object):
 
     def __init__(self):
@@ -24,8 +30,8 @@ class Turn(object):
         while self._can_continue:
             self.roll()
 
-            if self.score > 500 or self._dice_remaining <= 2 or self._fill:
-                self.__set_status__("stop")
+            # if self.score > 500 or self._dice_remaining <= 2 or self._fill:
+                # self.__set_status__("stop")
 
         self.finishTurn()
 
@@ -90,7 +96,8 @@ class Turn(object):
             score += np.dot(counts>=3, self.__TRIPLE_VALUES)
             self._dice_remaining -= 3*sum(counts>=3)
             counts[counts>=3] = counts[counts>=3]-3
-
+        
+        # TODO: Should strategy go here?
         # Implement some strategy
         # if counts[0] > 0:
             # counts[4] = 0 # Throw back fives
@@ -172,7 +179,7 @@ class Deck(object):
     for name, bonus, fill in zip(NAMES, BONUSES, REQUIRES_FILL):
         for i in range(FREQS[NAMES.index(name)]):
             ALL_CARDS.append(Card(name, bonus, fill))
-    TOTAL_CARDS = len(ALL_CARDS)
+    TOTAL_NUM_CARDS_IN_DECK = len(ALL_CARDS)
 
     class Node(object):
 
