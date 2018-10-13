@@ -3,22 +3,24 @@ import random
 import time
 from collections import Counter
 
+
 class Player(object):
 
     def __init__(self, strategy='normal'):
         self.score = 0
         self.strategy = strategy
 
+
 class Turn(object):
 
     def __init__(self):
         self._card = []
-        self._score = 0               
+        self._score = 0
         self.__set_status__("start")
-        
+
         # Pointer values
         self.__TRIPLE_VALUES = [1000, 200, 300, 400, 500, 600]
-        self.__SINGLE_VALUES = [ 100,   0,   0,   0,  50,   0]
+        self.__SINGLE_VALUES = [100, 0, 0, 0, 50, 0]
 
     def _set_card(self, card):
         assert type(card) == Card, "Card input must be a Card object."
@@ -37,7 +39,7 @@ class Turn(object):
 
     def roll(self):
         assert self._card != [], "Must first draw a card."
-        assert self._can_continue, "Can't roll again, turn over."        
+        assert self._can_continue, "Can't roll again, turn over."
 
         # It might make sense to implement the card consequences here
         if self._card == "NoDice":
@@ -58,7 +60,7 @@ class Turn(object):
             self._dice = []
             self._fill = False
             self._bust = False
-            self._stopped = False 
+            self._stopped = False
         elif status == "fill":
             self._fill = True
             self._bust = False
@@ -96,7 +98,7 @@ class Turn(object):
             score += np.dot(counts>=3, self.__TRIPLE_VALUES)
             self._dice_remaining -= 3*sum(counts>=3)
             counts[counts>=3] = counts[counts>=3]-3
-        
+
         # TODO: Should strategy go here?
         # Implement some strategy
         # if counts[0] > 0:
@@ -128,7 +130,7 @@ class Turn(object):
 
     def __restart__(self):
         self.__init__()
-        
+
     @property
     def score(self):
         return self._score
@@ -139,10 +141,11 @@ class Turn(object):
     def __repr__(self):
         return "Card: " + str(self._card) + ", dice: " + str(self._dice) + ", current score: " + str(self._score) + ", dice remaining: " + str(self._dice_remaining)
 
+
 class Card(object):
 
     def __init__(self, name, bonus, requires_fill):
-        self.name = name        
+        self.name = name
         self._bonus = bonus
         self._requires_fill = requires_fill
 
@@ -166,6 +169,7 @@ class Card(object):
     def bonus(self):
         return self._bonus
 
+
 class Deck(object):
 
     NAMES   = ["Bonus300","Bonus400","Bonus500","Fill1000",
@@ -175,7 +179,7 @@ class Deck(object):
     REQUIRES_FILL = [False,False,False,True,True,False,False,True]
 
     # Populate a list with all of the cards
-    ALL_CARDS = []    
+    ALL_CARDS = []
     for name, bonus, fill in zip(NAMES, BONUSES, REQUIRES_FILL):
         for i in range(FREQS[NAMES.index(name)]):
             ALL_CARDS.append(Card(name, bonus, fill))
