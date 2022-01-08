@@ -1,5 +1,5 @@
 from collections import Counter
-from random import choice, randint
+from random import choice
 from typing import List, Tuple
 
 import numpy as np
@@ -10,12 +10,14 @@ from .agents import DumbAgent
 NUM_DICE = 6
 TRIPLE_VALUES = [1000, 200, 300, 400, 500, 600]
 SINGLE_VALUES = {1: 100, 5: 50}
-MAX_SCORE = 1_000
+MAX_SCORE = 10_000
 
 
 class FillOrBust:
     def __init__(self, players: Tuple[DumbAgent, ...], max_score: int = MAX_SCORE) -> None:
         self.players = players
+        for player in self.players:
+            player.score = 0
         self.num_players = len(self.players)
         self.current_player = choice(["X", "O"])
         self.max_score = max_score
@@ -23,19 +25,23 @@ class FillOrBust:
         self.keep_rolling = True
         self.score = 0
         self.states = []
+        # self.record_state([p for p in players if p.symbol == self.current_player][0])
 
     def advance_to_next_player(self) -> None:
         self.current_player = "O" if self.current_player == "X" else "X"
         self.keep_rolling = True
         self.reset_dice()
 
+    def record_state(self, player, action: List[int], keep_rolling: bool) -> str:
+        action = "".join(map(lambda x: str(x), action)) + f",{keep_rolling}"
+        state = f"{player.symbol},{action},{self.num_dice_remaining}"
+        self.states.append(state)
+
     @property
     def state(self) -> str:
-        return f"{self.score},{self.current_player},{self.num_dice_remaining}"
-
-    def record_state(self, symbol, turn_score, score, num_dice) -> None:
-        state = f"{symbol},{turn_score},{score},{num_dice}"
-        self.states.append(state)
+        if len(self.states):
+            return self.states[-1]
+        return None
 
     @property
     def num_dice_remaining(self) -> int:
@@ -43,7 +49,6 @@ class FillOrBust:
 
     def roll(self) -> List[int]:
         self.dice = np.sort(np.random.randint(1, 7, self.num_dice_remaining))
-        print(self.dice)
 
     def reset_dice(self, num_dice_to_roll: int = NUM_DICE) -> None:
         self.dice = num_dice_to_roll * [None]
@@ -55,29 +60,29 @@ class FillOrBust:
         return score
 
     def take_turn(self, player: DumbAgent) -> int:
-        print(f"Player: {player.symbol}, {player.score}")
-        turn_score = 0
+        player.turn_score = 0
+        self.record_state(player, (None, ), True)
         while not self.turn_is_over:
             self.roll()
             if self.dice_is_bust():
-                turn_score = 0
+                player.turn_score = 0
+                self.record_state(player, (None, ), False)
                 break
 
             # Get action from player (if we didn't bust)
-            action, keep_rolling = player.select_action_from_dice(self.dice)
-            turn_score += self.take_action_on_dice(action, keep_rolling)
+            action = player.select_action(self.dice)
+            player.turn_score += self.take_action_on_dice(*action)
 
             # Check for a fill
             if self.num_dice_remaining == 0:
-                turn_score += 500
+                player.turn_score += 500
+            self.record_state(player, *action)
 
-        player.score += turn_score
-        self.reset_dice()
+        player.score += player.turn_score
         self.advance_to_next_player()
         return
 
     def calc_score_on_dice(self, dice: List[int]) -> int:
-        # First step: just count 1's and 5's
         score = 0
         counts = Counter(dice)
         for pointer, value in SINGLE_VALUES.items():

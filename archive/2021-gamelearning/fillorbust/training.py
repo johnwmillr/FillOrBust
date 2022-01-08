@@ -8,11 +8,22 @@ def play_a_game_of_agents(agents: Tuple[DumbAgent, ...], verbose: bool = True) -
     game = FillOrBust(agents)
     while not game.game_is_over:
         agent = [a for a in agents if a.symbol == game.current_player][0]
-
-        # Current player take their turn
         game.take_turn(agent)
 
-    print(f"\n{game.winner} is the winner!")
+    if verbose:
+        print(f"\n{game.winner} is the winner!")
     for agent in agents:
-        print(agent.symbol, agent.score)
+        if verbose:
+            print(agent.symbol, agent.score)
+        agent.log_outcome(game.winner)
+        agent.update_prior(game.states, game.winner)
     return game.winner
+
+
+def play_many_games(players, num_games: int = 1000, verbose=True):
+    for n in range(num_games):
+        play_a_game_of_agents(players, verbose=False)
+        if verbose and (n == 0 or n % int(0.1 * num_games) == 0):
+            print(f"({n}/{num_games})")
+            [print(player.__repr__()) for player in players]
+    return players
