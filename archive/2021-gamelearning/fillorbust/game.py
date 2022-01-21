@@ -1,11 +1,10 @@
 from collections import Counter
-from random import choice
-from typing import List, Tuple
+from random import shuffle
+from typing import List, Union
 
 import numpy as np
 
-from .agents import DumbAgent
-
+from .agents import POINTERS, DumbAgent, SmartAgent
 
 NUM_DICE = 6
 TRIPLE_VALUES = [1000, 200, 300, 400, 500, 600]
@@ -14,73 +13,65 @@ MAX_SCORE = 10_000
 
 
 class FillOrBust:
-    def __init__(self, players: Tuple[DumbAgent, ...], max_score: int = MAX_SCORE) -> None:
+    def __init__(self, players: List[Union[DumbAgent, SmartAgent]], max_score: int = MAX_SCORE) -> None:
         self.players = players
         for player in self.players:
             player.score = 0
-        self.num_players = len(self.players)
-        self.current_player = choice(["X", "O"])
         self.max_score = max_score
-        self.dice = NUM_DICE * [None]
-        self.keep_rolling = True
-        self.score = 0
-        self.states = []
-        # self.record_state([p for p in players if p.symbol == self.current_player][0])
+        self.turn_score = 0
+        self.dice = []
+        self._randomize_player_order()
+        self.start_new_turn()
 
-    def advance_to_next_player(self) -> None:
-        self.current_player = "O" if self.current_player == "X" else "X"
-        self.keep_rolling = True
-        self.reset_dice()
+    def _randomize_player_order(self) -> None:
+        self.name_to_player = {player.name: player for player in self.players}
+        self.player_names = [player.name for player in self.players]
+        shuffle(self.player_names)
+        self.current_player = self.name_to_player[self.player_names[0]]
 
-    def record_state(self, player, action: List[int], keep_rolling: bool) -> str:
-        action = "".join(map(lambda x: str(x), action)) + f",{keep_rolling}"
-        state = f"{player.symbol},{action},{self.num_dice_remaining}"
-        self.states.append(state)
+    def start_new_turn(self) -> None:
+        self.current_player = self.get_next_player()
+        self.turn_score = 0
+        self.dice = np.asarray(NUM_DICE * [None])
+        self.roll()
 
-    @property
-    def state(self) -> str:
-        if len(self.states):
-            return self.states[-1]
-        return None
+    def finish_turn(self) -> None:
+        self.current_player.process_reward(self.turn_score)
+        self.start_new_turn()
 
-    @property
-    def num_dice_remaining(self) -> int:
-        return len(self.dice)
+    def get_next_player(self) -> Union[DumbAgent, SmartAgent]:
+        i = self.player_names.index(self.current_player.name)
+        name = self.player_names[(i + 1) % len(self.players)]
+        return self.name_to_player[name]
+
+    def remove_pointers_update_score_and_dice(self, pointers: List[int]) -> None:
+        self.turn_score += self.calc_score_on_dice(pointers)
+        self.dice = [None] * (len(self.dice) - len(pointers))
+        if len(self.dice) == 0:
+            # self.turn_score += 1000
+            self.dice = NUM_DICE * [None]
+
+    def perform_action(self, action: str) -> None:
+        if action == "stop":
+            self.stop()
+        elif action == "roll":
+            self.roll()
+
+    def stop(self) -> None:
+        self.current_player.score += self.turn_score
+        self.finish_turn()
 
     def roll(self) -> List[int]:
         self.dice = np.sort(np.random.randint(1, 7, self.num_dice_remaining))
+        busted = self.calc_score_on_dice(self.dice) == 0
+        if busted:
+            self.turn_score = 0
+            self.finish_turn()
+            return
 
-    def reset_dice(self, num_dice_to_roll: int = NUM_DICE) -> None:
-        self.dice = num_dice_to_roll * [None]
-
-    def take_action_on_dice(self, action: Tuple[int], keep_rolling: bool) -> Tuple[int, int]:
-        score = self.calc_score_on_dice(action)
-        self.reset_dice(len(self.dice) - len(action))
-        self.keep_rolling = keep_rolling
-        return score
-
-    def take_turn(self, player: DumbAgent) -> int:
-        player.turn_score = 0
-        self.record_state(player, (None, ), True)
-        while not self.turn_is_over:
-            self.roll()
-            if self.dice_is_bust():
-                player.turn_score = 0
-                self.record_state(player, (None, ), False)
-                break
-
-            # Get action from player (if we didn't bust)
-            action = player.select_action(self.dice)
-            player.turn_score += self.take_action_on_dice(*action)
-
-            # Check for a fill
-            if self.num_dice_remaining == 0:
-                player.turn_score += 500
-            self.record_state(player, *action)
-
-        player.score += player.turn_score
-        self.advance_to_next_player()
-        return
+        # Always take all pointers (for now)
+        pointers = [die for die in self.dice if die in POINTERS]
+        self.remove_pointers_update_score_and_dice(pointers)
 
     def calc_score_on_dice(self, dice: List[int]) -> int:
         score = 0
@@ -89,40 +80,37 @@ class FillOrBust:
             score += counts.get(pointer, 0) * value
         return score
 
-    def dice_is_bust(self) -> bool:
-        if not any(self.dice):
-            return False
-        return not any(p in self.dice for p in [1, 5])
-
     @property
-    def turn_is_over(self) -> bool:
-        if self.dice_is_bust():
-            return True
-        if not self.keep_rolling:
-            return True
-        if len(self.dice) == 0:
-            return True
-        return False
+    def state(self) -> str:
+        # name = self.current_player.name
+        # score = self.current_player.score
+        turn_score = self.turn_score
+        num_dice = len(self.dice)
+        # num_pointers = len([d for d in self.dice if d in POINTERS])
+        state = f"{num_dice}|{turn_score:03d}"
+        return state
 
     @property
     def game_is_over(self) -> bool:
-        return any(player.score >= self.max_score for player in self.players)
+        over_max_score = any(player.score >= self.max_score for player in self.players)
+        no_tie = len(set(player.score for player in self.players)) > 1
+        is_over = over_max_score and no_tie
+        # if is_over:
+        #     best_score = max(player.score for player in self.players)
+        #     for player in self.players:
+        #         reward = 1 if player.score == best_score else 0
+        #         player.process_reward(reward)
+        return is_over
 
     @property
-    def winner(self) -> bool:
-        highest_score = 0
-        player_with_highest_score = None
-        for player in self.players:
-            if player.score > highest_score:
-                highest_score = player.score
-                player_with_highest_score = player.symbol
-        return player_with_highest_score
+    def num_dice_remaining(self) -> int:
+        return len(self.dice)
 
     def _dice_to_display_str(self, dice: List[str]) -> str:
-        pass
+        return str(dice)
 
     def __str__(self):
         return self._dice_to_display_str(self.dice)
 
     def __repr__(self) -> str:
-        return self.__str__()
+        return f"FillOrBust: {self.__str__()}"

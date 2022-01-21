@@ -15,8 +15,6 @@ def play_a_game_of_agents(agents: Tuple[DumbAgent, ...], verbose: bool = True) -
     for agent in agents:
         if verbose:
             print(agent.symbol, agent.score)
-        agent.log_outcome(game.winner)
-        agent.update_prior(game.states, game.winner)
     return game.winner
 
 

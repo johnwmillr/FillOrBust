@@ -1,70 +1,62 @@
 from itertools import combinations
 from random import choice, random
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import pandas as pd
+
+# from fillorbust.game import NUM_DICE
+
+
+# from .game import SINGLE_VALUES
+
+# POINTERS = list(SINGLE_VALUES.keys())
+POINTERS = [1, 5]
+NUM_DICE = 6
 
 
 class Agent:
-    def __init__(self, symbol: str):
-        assert symbol in ["X", "O"], symbol
-        self.symbol = symbol
-        self.opponent = "O" if self.symbol == "X" else "X"
+    def __init__(self, name: str):
+        self.name = name
         self.score = 0
-        self.turn_score = 0
-        self.states = {}
-        self.wins = {}
-        self.prior = {}
-        self.num_games = 0
-        self.num_wins = 0
-        self.num_ties = 0
-        self.banked_pointers = []
+        self.states = []
 
-    def update_prior(self, *args, **kwargs) -> None:
+    def combine_state_and_action(self, state: str, action: str) -> str:
+        return f"{state}|{action}"
+
+    def record_state(self, state: str, action: str) -> None:
+        self.states.append(self.combine_state_and_action(state, action))
+
+    def determine_possible_actions(self, state: str) -> List[str]:
+        num_dice, turn_score = self.parse_state_str(state)
+        if num_dice:
+            action = ["roll"]
+            if num_dice < NUM_DICE or turn_score > 0:
+                action.append("stop")
+            return action
+
+    def get_pointers_from_dice(self, dice) -> List[int]:
+        return [die for die in dice if die in POINTERS]
+
+    def parse_state_str(self, state: str) -> Tuple[int, int, int, int]:
+        splits = state.split("|")
+        # name = splits[0]
+        # score = int(splits[0])
+        turn_score = int(splits[1])
+        num_dice = int(splits[0])
+        # num_pointers = int(splits[2])
+        return num_dice, turn_score
+
+    def process_reward(self, reward: int) -> None:
         pass
 
-    def determine_possible_actions(self, dice: List[int]) -> List[Tuple[Tuple[int, ...], bool]]:
-        actions = []
-        singles = [d for d in dice if d in [1, 5]]
-        for n in range(1, len(singles) + 1):
-            options = sorted(combinations(singles, n))
-            options = [(action, True) for action in options] + [(action, False) for action in options]
-            actions.extend(options)
-        return sorted(set(actions), key=lambda x: (len(x[0]), min(x[0])))
-
-    def produce_possible_state(self, dice: List[int], action: List[int], keep_rolling: bool) -> str:
-        num_dice_remaining = len(dice) - len(action)
-        action = "".join(map(lambda x: str(x), action)) + f",{keep_rolling}"
-        state = f"{self.symbol},{action},{num_dice_remaining}"
-        return state
-
-    def determine_possible_next_states(self, dice: List[int]) -> List[int]:
-        possible_actions = self.determine_possible_actions(dice)
-        possible_states = set()
-        for n, action in enumerate(possible_actions):
-            possible_states.add(self.produce_possible_state(dice, *action))
-        return list(possible_states)
-
-    def get_state_value(self, state: str) -> float:
-        return self.prior.get(state, 0.5)
-
-    @property
-    def agent_win_percentage(self) -> float:
-        try:
-            return self.num_wins / self.num_games
-        except ZeroDivisionError:
-            return 0
-
-    def log_outcome(self, winner: str) -> None:
-        self.num_games += 1
-        if winner == self.symbol:
-            self.num_wins += 1
-        if winner == "T":
-            self.num_ties += 1
+    def state_str_to_dice(self, state: str) -> List[Union[str, None]]:
+        str_to_num = lambda s: None if "None" in s else int(s)
+        dice = list(map(str_to_num, state.rsplit("|", 1)[-1][1:-1].split(" ")))
+        return dice
 
     def save(self, filename: str = None) -> None:
         """Save the trained agent to a csv file"""
         if filename is None:
-            filename = f"fob-agent_{self.symbol}_{self.num_games}"
+            filename = f"fob-agent_{self.name}_{self.num_games}"
         if not filename.endswith(".csv"):
             filename += ".csv"
         with open(filename, "w") as fout:
@@ -79,29 +71,26 @@ class Agent:
             .fillna(0)
             .reset_index()
             .rename(columns={"index": "state"})
-            .assign(trained_symbol=self.symbol)
+            .assign(trained_name=self.name)
             .sort_values(by="count", ascending=False)
         )
         return states.to_csv(index=False)
 
     def __str__(self):
-        return self.symbol
+        return self.name
 
     def __repr__(self):
-        return (
-            f"Agent '{self.symbol}' Record: {self.num_wins}/{self.num_games} ({100 * self.agent_win_percentage:.1f}%)"
-        )
+        return f"Agent: '{self.name}' {self.score}"
 
 
 class DumbAgent(Agent):
-    def __init__(self, symbol: str):
-        super().__init__(symbol)
+    def __init__(self, name: str):
+        super().__init__(name)
 
-    def select_action(self, dice: List[str]) -> Tuple[Tuple[int], bool]:
-        actions = self.determine_possible_actions(dice)
-        if len(actions) == 0:
-            return None, False
-        action = choice(actions)
+    def select_action(self, state: str) -> Tuple[Tuple[int], bool]:
+        possible_actions = self.determine_possible_actions(state)
+        action = choice(possible_actions)
+        self.record_state(state, action)
         return action
 
     def __repr__(self):
@@ -109,88 +98,42 @@ class DumbAgent(Agent):
 
 
 class SmartAgent(Agent):
-    def __init__(self, symbol: str, epsilon: float = 0.1, alpha: float = 0.9, verbose=False):
-        super().__init__(symbol)
-
+    def __init__(self, name: str, epsilon: float = 0.1, alpha: float = 1.0, verbose=False):
+        super().__init__(name)
+        self.prior = {}
         self.epsilon = epsilon
         self.alpha = alpha
-        self.verbose = verbose
 
-    def select_action(self, dice: List[str]) -> Tuple[int]:
-        possible_actions = self.determine_possible_actions(dice)
+    def get_prior(self, state: str, action: str) -> float:
+        return self.prior.get(self.combine_state_and_action(state, action), 100)
+
+    def select_action(self, state: str) -> Tuple[int]:
+        possible_actions = self.determine_possible_actions(state)
         if random() < self.epsilon:
-            return choice(possible_actions)
+            # Explore
+            action = choice(possible_actions)
+        else:
+            # Exploit
+            history = {action: self.get_prior(state, action) for action in possible_actions}
+            max_value = max(history.values())
+            action = choice([key for key, value in history.items() if value == max_value])
+        self.record_state(state, action)
+        return action
 
-        # Exploit
-        possible_states = self.determine_possible_next_states(dice)
-        probs = [self.get_state_value(s) for s in possible_states]
-        best_index = choice([i for i, prob in enumerate(probs) if prob == max(probs)])
-        return possible_actions[best_index]
-
-    def update_prior(self, states: List[str], winner: str) -> None:
-        states = states[::-1]
-        for n, state in enumerate(states):
-            self.states[state] = self.states.get(state, 0) + 1
-
-            # Recalculate the current state's win probability
-            v = self.get_state_value(state)
-            if n == 0:
-                if winner == self.symbol:
-                    reward = self.score
-                else:
-                    reward = 0
-                v = v + (reward - v) / self.states[state]
-            else:
-                # Back-propagate win probabilities to earlier states
-                v_next_state = self.get_state_value(states[n - 1])
-                v += self.alpha * (v_next_state - v)
+    def process_reward(self, reward: int) -> None:
+        while self.states:
+            state = self.states.pop()
+            v = self.get_prior(*state.rsplit("|", 1))
+            v += self.alpha * (reward - v)
             self.prior[state] = v
 
-        # Decrease alpha over time
-        if self.alpha > 0.2 and self.num_games % 100_000 == 0:
-            self.alpha *= 0.99
-
-    def save(self, filename: str = None) -> None:
-        """Save the trained agent to a csv file"""
-        if filename is None:
-            filename = f"fob-agent_{self.symbol}_{self.num_games}_ep_{self.epsilon}_alpha_{self.alpha}"
-        if not filename.endswith(".csv"):
-            filename += ".csv"
-        with open(filename, "w") as fout:
-            fout.write(self._to_csv())
-        print(f"Saved agent: '{filename}'")
-
-    def load_trained_agent(self, filename: str) -> None:
-        training = pd.read_csv(filename, dtype={"state": str})
-
-        # Flip the trained agent symbol if necessary
-        trained_symbol = training["trained_symbol"].iloc[0]
-        own_symbol = self.symbol
-        if trained_symbol != own_symbol:
-            training = training.assign(
-                state_copy=lambda df: df["state"]
-                .str.replace(trained_symbol, "Y")
-                .str.replace(own_symbol, trained_symbol)
-                .str.replace("Y", own_symbol),
-                state=lambda df: df["state_copy"],
-                trained_symbol=own_symbol,
-            ).drop(columns=["state_copy"])
-
-        # Populate the agent with the trained data
-        training = training.set_index("state")
-        self.states = training["count"].to_dict()
-        self.prior = training["win_percentage"].to_dict()
-        self.reset_game_history()
-
-    def _to_csv(self) -> str:
-        from io import StringIO
-
-        states = pd.read_table(StringIO(super()._to_csv()), sep=",", dtype={"state": str})
-        states = states.assign(epsilon=self.epsilon, alpha=self.alpha)
-        return states.to_csv(index=False)
+    def print_prior(self, by_keys: bool = True) -> None:
+        if by_keys:
+            sorted_prior = sorted(self.prior.items(), key=lambda item: item[0], reverse=False)
+        else:
+            sorted_prior = sorted(self.prior.items(), key=lambda item: item[1], reverse=True)
+        for key, val in sorted_prior:
+            print(f"{key}: {val}")
 
     def __repr__(self):
-        return (
-            super().__repr__()
-            + f" (Smart) (Epsilon: {self.epsilon}) (Alpha: {self.alpha: 0.3f}) (States: {len(self.prior)})"
-        )
+        return super().__repr__() + " (Smart)"
