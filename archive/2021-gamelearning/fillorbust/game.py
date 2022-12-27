@@ -32,8 +32,8 @@ class FillOrBust:
     def start_new_turn(self) -> None:
         self.current_player = self.get_next_player()
         self.turn_score = 0
-        self.dice = np.asarray(NUM_DICE * [None])
-        self.roll()
+        self.dice = NUM_DICE * [None]
+        # self.roll()
 
     def finish_turn(self) -> None:
         self.current_player.process_reward(self.turn_score)
@@ -44,18 +44,13 @@ class FillOrBust:
         name = self.player_names[(i + 1) % len(self.players)]
         return self.name_to_player[name]
 
-    def remove_pointers_update_score_and_dice(self, pointers: List[int]) -> None:
-        self.turn_score += self.calc_score_on_dice(pointers)
-        self.dice = [None] * (len(self.dice) - len(pointers))
-        if len(self.dice) == 0:
-            # self.turn_score += 1000
-            self.dice = NUM_DICE * [None]
-
     def perform_action(self, action: str) -> None:
-        if action == "stop":
+        if action.lower().startswith("s"):
             self.stop()
-        elif action == "roll":
+        elif action.lower().startswith("r"):
             self.roll()
+        elif len(action) == 2:
+            self.take_pointers(*list(map(int, action)))
 
     def stop(self) -> None:
         self.current_player.score += self.turn_score
@@ -67,11 +62,24 @@ class FillOrBust:
         if busted:
             self.turn_score = 0
             self.finish_turn()
-            return
 
-        # Always take all pointers (for now)
-        pointers = [die for die in self.dice if die in POINTERS]
-        self.remove_pointers_update_score_and_dice(pointers)
+    def take_pointers(self, ones, fives) -> None:
+        selection = ones * [1] + fives * [5]
+        pointers = self.get_pointers_from_dice()
+        msg = "Selected more pointers than available."
+        for pointer in POINTERS:
+            assert selection.count(pointer) <= pointers.count(pointer), msg
+        self.remove_pointers_update_score_and_dice(selection)
+
+    def remove_pointers_update_score_and_dice(self, pointers: List[int]) -> None:
+        self.turn_score += self.calc_score_on_dice(pointers)
+        self.dice = [None] * (len(self.dice) - len(pointers))
+        if len(self.dice) == 0:
+            # self.turn_score += 1000  # Bonus for filling
+            self.dice = NUM_DICE * [None]
+
+    def get_pointers_from_dice(self) -> List[int]:
+        return [die for die in self.dice if die in POINTERS]
 
     def calc_score_on_dice(self, dice: List[int]) -> int:
         score = 0
@@ -82,12 +90,11 @@ class FillOrBust:
 
     @property
     def state(self) -> str:
-        # name = self.current_player.name
-        # score = self.current_player.score
-        turn_score = self.turn_score
         num_dice = len(self.dice)
-        # num_pointers = len([d for d in self.dice if d in POINTERS])
-        state = f"{num_dice}|{turn_score:03d}"
+        pointers = self.get_pointers_from_dice()
+        pointers = "".join(str(pointers.count(p)) for p in POINTERS)
+        turn_score = self.turn_score
+        state = f"{num_dice}|{pointers}|{turn_score:03d}"
         return state
 
     @property
