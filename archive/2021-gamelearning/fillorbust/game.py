@@ -1,14 +1,14 @@
+from calendar import c
 from collections import Counter
-from inspect import Attribute
+from itertools import combinations
+from random import choice, choices, sample, shuffle
+from typing import List, Optional, Set
 from uuid import uuid4
-from random import choice, sample, shuffle
-from typing import List
-
 
 try:
-    from fillorbust.card import Card, FULL_DECK
+    from fillorbust.card import FULL_DECK, Card
 except ModuleNotFoundError:
-    from card import Card, FULL_DECK
+    from card import FULL_DECK, Card
 
 
 class Dice:
@@ -18,12 +18,11 @@ class Dice:
     def __init__(self, num_dice: int = 6, num_sides: int = 6) -> None:
         self.num_dice = num_dice
         self.num_sides = num_sides
-        self.active = self.roll()
+        self.active: Optional[List[int]] = None
         self.held: List[List[int]] = []
 
-    def roll(self) -> List[int]:
-        dice = sample(range(1, self.num_sides + 1), self.num_dice_remaining)
-        return dice
+    def roll(self) -> None:
+        self.active = choices(range(1, self.num_sides + 1), k=self.num_dice_remaining)
 
     @property
     def active_counts(self) -> Counter:
@@ -35,7 +34,33 @@ class Dice:
             if counts[number] > self.active_counts.get(number, 0):
                 raise ValueError(f"Can't remove {counts[number]} {number}'s from {self.active}.")
 
-        self.held.append([self.active.pop(self.active.index(number)) for number in numbers_to_hold])
+        self.held.append([self.active.pop(self.active.index(number)) for number in numbers_to_hold])  # type: ignore
+
+    def get_possible_actions(self, dice: List[int]) -> List[str]:
+        counts = Counter(dice)
+        options: List[str] = []
+
+        # Check for a straight
+        if dice and len(dice) == self.num_dice and set(counts.values()) == {1}:
+            options.append("123456")
+
+        # Check for triples and singles
+        for die, count in counts.items():
+            if count >= 3:
+                options.append(3 * str(die))
+            if count != 3 and die in Dice.SINGLE_VALUES:
+                for n in range(1, (count % 3) + 1):
+                    options.append(str(die))
+        options = [",".join(option) for option in options]
+
+        # Enumerate all possible combinations
+        combos = set()
+        for n in range(1, len(options) + 1):
+            combos = combos.union(set(",".join(sorted(combo)) for combo in combinations(options, n)))
+
+        # Prevent pulling out more dice than allowed (e.g. ['1,1,2,3,4,5,6'])
+        combos = filter(lambda x: len(x.replace(",", "")) <= len(dice), combos)
+        return sorted("take_" + option for option in combos)
 
     def compute_score(self, dice: List[int]) -> int:
         counts = Counter(dice)
@@ -58,19 +83,24 @@ class Dice:
 
     @property
     def num_dice_remaining(self) -> int:
-        try:
-            return self.num_dice - len(self.held)
-        except AttributeError:
-            return self.num_dice
+        return len(self.active) if self.active else self.num_dice
+
+    def reset(self) -> None:
+        self.active = None
+        self.held = []
 
     def __len__(self) -> int:
         return self.num_dice_remaining
+
+    def __repr__(self) -> str:
+        return f"<Dice: {self.active}>"
 
 
 class Deck:
     def __init__(self) -> None:
         self.cards: List[Card] = FULL_DECK.copy()
         self.discard: List[Card] = []
+        self.current: Optional[Card] = None
         self.shuffle()
 
     def draw(self) -> Card:
@@ -95,7 +125,6 @@ class Player:
     def __init__(self, name) -> None:
         self.name = name
         self.score = 0
-        self.held_dice = []
         self.id = uuid4()
 
     def choose_action(self, actions: List[str]) -> str:
@@ -115,7 +144,7 @@ class FillOrBust:
         self.deck = Deck()
         self.dice = Dice()
         self.turn_is_in_progress = False
-        self.busted = False
+        self.state = "new_turn"
 
     def play(self) -> None:
         while not self.is_over:
@@ -127,73 +156,72 @@ class FillOrBust:
 
     def take_turn_for_current_player(self) -> None:
         self.turn_is_in_progress = True
+        self.state = "new_turn"
         while self.turn_is_in_progress:
             actions = self.get_available_actions()
-            action = self.current_player.choose_action(actions)
-            self.perform_action(action)
-            self.check_action_result()
+            if actions:
+                action = self.current_player.choose_action(actions)
+                self.perform_action(action)
+            else:
+                self.turn_is_in_progress = False
         self._end_turn()
 
     def get_available_actions(self) -> List[str]:
         actions = []
-        if self.dice.num_dice_remaining == 6:
-            actions.extend(["roll", "draw"])
-
-        actions.extend(self.get_dice_actions())
-        self.dice.dice
+        if self.state == "new_turn":
+            actions.append("draw")
+        if self.state in ["drew_card", "took_pointers"]:
+            actions.append("roll")
+        if self.state == "took_pointers":
+            actions.append("stop")
+        if self.state == "rolled":
+            actions.extend(self.dice.get_possible_actions(self.dice.active))  # type: ignore
+        if self.state == "filled":
+            actions.extend(["draw", "stop"])
+        if self.state == "busted":
+            actions = []
         return actions
-
-    def get_dice_actions(self) -> List[str]:
-        actions: List[str] = []
-        counts = Counter(self.dice.dice)
-
-        # Check for a straight
-        if len(self.dice.dice) == Dice.NUM_DICE and set(counts.values()) == {1}:
-            actions.append("123456")
-
-        # Check for triples and singles
-        for key, count in counts.items():
-            if count == 3:
-                Dice.TRIPLE_VALUES[key.value]  # type: ignore
-                actions.append(f"{str(key.value) * count}")
-            elif key.value in Dice.SINGLE_VALUES:
-                actions.append(f"{str(key.value) * count}")
-        return [f"take_pointers_{action}" for action in actions]
 
     def perform_action(self, action: str) -> None:
         if action == "draw":
             self.draw()
         elif action == "roll":
             self.roll()
-        elif action.startswith("take_pointers_"):
+        elif action.startswith("take_"):
             self.take_pointers(action)
         elif action == "stop":
             self.stop()
 
     def draw(self) -> None:
-        card = self.deck.draw()
+        self.deck.current = self.deck.draw()
+        if self.deck.current.name == "No Dice":
+            self.state = "busted"
+        else:
+            self.state = "drew_card"
 
     def roll(self) -> None:
         self.dice.roll()
+        if self.dice.compute_score(self.dice.active):
+            self.state = "rolled"
+        else:
+            self.state = "busted"
 
-    def take_pointers(self, pointers: str) -> None:
-        pass
+    def take_pointers(self, action: str) -> None:
+        pointers = list(map(int, action.split("take_")[1].split(",")))
+        self.dice.hold_dice(pointers)
+        self.state = "took_pointers"
 
     def stop(self) -> None:
         self.turn_is_in_progress = False
 
-    def check_action_result(self) -> None:
-        if self.dice.compute_score(self.dice.held) == 0:
-            self.busted = True
-            self.turn_is_in_progress = False
-
     def _end_turn(self) -> None:
         self.compute_turn_score_for_current_player()
         self._increment_player_index()
+        self.dice.reset()
 
     def compute_turn_score_for_current_player(self) -> None:
         score = 0
-        if not self.busted:
+        if not self.state == "busted":
             score = self.dice.compute_score_from_held_dice()
         self.current_player.score += score
 
@@ -231,6 +259,9 @@ def main() -> None:
     game = FillOrBust(players=[john, anna])
     while not game.is_over:
         game.play()
+    print("Game over!")
+    for player in game.players:
+        print(player)
 
 
 if __name__ == "__main__":
