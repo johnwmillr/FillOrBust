@@ -60,12 +60,11 @@ class TestDice(unittest.TestCase):
             self.assertEqual(dice.compute_score(dice.held[0]), score)
 
     def test_triple_single_combos_are_computed_correctly(self) -> None:
-        num_dice = 6
-        dice = Dice(num_dice=num_dice, num_sides=6)
+        dice = Dice()
         dice.active = []
 
         holds = [[[1, 1, 1, 1]], [[2, 2, 2, 5]], [[2, 2, 2, 3, 3, 3]], [[1, 1, 1, 1, 1, 1]]]
-        scores = [1100, 250]
+        scores = [1100, 250, 500, 2000]
         for held, score in zip(holds, scores):
             dice.held = held
             self.assertEqual(dice.compute_score(dice.held[0]), score)
@@ -104,6 +103,12 @@ class TestDice(unittest.TestCase):
     def test_get_possible_actions_from_dice(self) -> None:
         dice = Dice()
         cases = [
+            {
+                "active": [1, 1, 1, 1, 1, 1],
+                "expected": [
+                    "take_1,1,1,1,1,1",
+                ],
+            },
             {
                 "active": [1, 1, 6, 4, 3, 3],
                 "expected": [

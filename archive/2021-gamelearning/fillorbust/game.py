@@ -1,8 +1,7 @@
-from calendar import c
 from collections import Counter
 from itertools import combinations
-from random import choice, choices, sample, shuffle
-from typing import List, Optional, Set
+from random import choice, choices, shuffle
+from typing import List, Optional
 from uuid import uuid4
 
 try:
@@ -47,7 +46,10 @@ class Dice:
         # Check for triples and singles
         for die, count in counts.items():
             if count >= 3:
-                options.append(3 * str(die))
+                if count == self.num_dice:
+                    options.append(6 * str(die))
+                else:
+                    options.append(3 * str(die))
             if count != 3 and die in Dice.SINGLE_VALUES:
                 for n in range(1, (count % 3) + 1):
                     options.append(str(die))
@@ -73,7 +75,10 @@ class Dice:
         score = 0
         for die, count in counts.items():
             if count >= 3:
-                score += Dice.TRIPLE_VALUES[die]
+                if count == self.num_dice:
+                    score += 2 * Dice.TRIPLE_VALUES[die]
+                else:
+                    score += Dice.TRIPLE_VALUES[die]
             if count != 3:
                 score += Dice.SINGLE_VALUES.get(die, 0) * (count % 3)
         return score
@@ -125,6 +130,7 @@ class Player:
     def __init__(self, name) -> None:
         self.name = name
         self.score = 0
+        self.wins = 0
         self.id = uuid4()
 
     def choose_action(self, actions: List[str]) -> str:
@@ -201,7 +207,7 @@ class FillOrBust:
 
     def roll(self) -> None:
         self.dice.roll()
-        if self.dice.compute_score(self.dice.active):
+        if self.dice.compute_score(self.dice.active):  # type: ignore
             self.state = "rolled"
         else:
             self.state = "busted"
@@ -256,12 +262,21 @@ class FillOrBust:
 def main() -> None:
     john = Player("John")
     anna = Player("Anna")
-    game = FillOrBust(players=[john, anna])
-    while not game.is_over:
-        game.play()
-    print("Game over!")
-    for player in game.players:
-        print(player)
+
+    for n in range(1000):
+        game = FillOrBust(players=[john, anna])
+        while not game.is_over:
+            game.play()
+        if n % 100 == 0:
+            print(n)
+        if john.score > anna.score:
+            john.wins += 1
+        else:
+            anna.wins += 1
+        john.score = 0
+        anna.score = 0
+    print(f"John wins: {john.wins}")
+    print(f"Anna wins: {anna.wins}")
 
 
 if __name__ == "__main__":
