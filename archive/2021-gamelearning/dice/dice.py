@@ -1,5 +1,8 @@
 import random
 from typing import Literal
+from matplotlib.axes import Axes
+
+import matplotlib.pyplot as plt
 
 
 ActionT = Literal["roll", "stop"]
@@ -19,6 +22,11 @@ Q Table
 """
 
 
+# learning rate, controlling the impact of new information on the existing Q-value.
+
+# the discount factor, representing the importance of future rewards.
+
+
 class QTable:
     def __init__(
         self,
@@ -30,6 +38,9 @@ class QTable:
         self.discount_factor = discount_factor
         self.epsilon = epsilon
         self.table: QTableT = {}
+
+    def __repr__(self) -> str:
+        return f"<QTable: {self.learning_rate=}, {self.discount_factor}, {self.epsilon=}>"
 
     def update(
         self, state: StateT, action: ActionT, new_state: StateT, reward: float
@@ -91,6 +102,8 @@ class Agent:
     def __init__(self, name: str) -> None:
         self.name = name
         self.score = 0
+        self.best_score = -1
+        self.num_games_played = 0
 
     def choose_action(self, state: StateT) -> ActionT:
         return random.choice(["roll", "stop"])
@@ -104,6 +117,14 @@ class Agent:
             else:
                 game.handle_stop()
         self.score += game.state
+        if game.state > self.best_score:
+            self.best_score = game.state
+        self.num_games_played += 1
+
+    def print_performance(self) -> None:
+        print(
+            f"{self.name.title()} Agent average score: {self.score / self.num_games_played:7.2f} | Best Score: {self.best_score}"
+        )
 
     def __repr__(self) -> str:
         return f"<Agent: '{self.name}', score: {self.score}>"
@@ -113,6 +134,7 @@ class Smart(Agent):
     def __init__(self, name: str, Q: QTable | None = None) -> None:
         super().__init__(name)
         self.Q = QTable() if Q is None else Q
+        self.evaluations: list[tuple[int, float]] = []
 
     def choose_action(self, state: StateT) -> ActionT:
         assert self.Q is not None, f"{self.name}'s Q Table is empty."
@@ -127,8 +149,8 @@ class Smart(Agent):
                 return best_action
         return random.choice(["roll", "stop"])
 
-    def train(self, num_episodes: int = 1_000) -> None:
-        for _ in range(num_episodes):
+    def train(self, num_episodes: int = 1_000, evaluate: bool = False) -> None:
+        for n in range(num_episodes):
             game = Game()
             while not game.game_is_over:
                 action: ActionT
@@ -145,11 +167,36 @@ class Smart(Agent):
                     new_state = game.state
                     reward = new_state
                 self.Q.update(game.state, action, new_state, reward)
+            if evaluate and n % 100 == 0:
+                self.evaluations.append((n, self.evaluate()))
+
+    def evaluate(self, num_games: int = 1_000) -> float:
+        self.score = 0
+        self.best_score = -1
+        self.num_games_played = 0
+        for _ in range(num_games):
+            self.play()
+        return self.score / self.num_games_played
+
+    def plot_evaluations(self) -> None:
+        if not len(self.evaluations):
+            print("No evaluations to plot.")
+            return
+        fig, ax = plt.subplots(figsize=[5, 3])
+        assert isinstance(ax, Axes)
+        x, y = [], []
+        for iteration in self.evaluations:
+            x.append(iteration[0])
+            y.append(iteration[1])
+        ax.plot(x, y, "ko-", label=self.Q)
+        ax.set_ylim((0, 100))
+        ax.legend()
+        plt.show()
 
 
 class RiskyAgent(Agent):
     def choose_action(self, state: StateT) -> ActionT:
-        if state < 500:
+        if state < 200:
             return "roll"
         return "stop"
 
@@ -158,21 +205,23 @@ if __name__ == "__main__":
     smart = Smart(
         "smart",
         Q=QTable(
-            learning_rate=0.1,
+            learning_rate=0.3,
             discount_factor=0.9,
             epsilon=0.8,
         ),
     )
-    smart.train(num_episodes=10_000)
-    dumb = Agent("dumb")
+    smart.train(num_episodes=1_000, evaluate=True)
+    dumb = Agent("dumb ")
     risky = RiskyAgent("risky")
 
     # Evaluate the agents
     NUM_TEST_GAMES = 100_000
+    agents: list[Agent] = [smart, dumb, risky]
     for n in range(NUM_TEST_GAMES):
-        smart.play()
-        dumb.play()
-        risky.play()
-    print(f"{smart.name.title()} Agent average score: {smart.score / NUM_TEST_GAMES}")
-    print(f"{dumb.name.title()} Agent average score: {dumb.score / NUM_TEST_GAMES}")
-    print(f"{risky.name.title()} Agent average score: {risky.score / NUM_TEST_GAMES}")
+        for agent in agents:
+            agent.play()
+
+    for agent in agents:
+        agent.print_performance()
+
+    smart.plot_evaluations()
