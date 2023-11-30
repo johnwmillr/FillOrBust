@@ -5,7 +5,6 @@ ActionT = Literal[
     None,
     "roll",
     "stop",
-    "hold",
     "hold_01",
     "hold_02",
     "hold_03",

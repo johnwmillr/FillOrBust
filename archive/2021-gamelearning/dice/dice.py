@@ -37,6 +37,29 @@ class UnknownActionError(Exception):
 
 # state = (250, 6, -1, -1, 0, 0)  # New turn?
 
+
+# ----------------
+state = {
+    "score": 0,
+    "num_dice": 6,
+    "rolled": {
+        "ones": 0,
+        "twos": 3,
+        "threes": 0,
+        "fours": 1,
+        "fives": 1,
+        "sixes": 0,
+    },
+    "held": {
+        "ones": 1,
+        "twos": 0,
+        "threes": 0,
+        "fours": 0,
+        "fives": 0,
+        "sixes": 0,
+    },
+}
+
 # Q Table
 # | States  |     Actions     |
 # | State   |   Roll |   Stop |
@@ -151,6 +174,7 @@ class Game:
     def busted(self) -> bool:
         # We rolled and got no pointers
         return self.num_ones_rolled == 0 and self.num_fives_rolled == 0
+        # return self.calc_score(self.dice) == 0  # TODO: Try something like this
 
     # @property
     # def stopped(self) -> bool:
@@ -227,7 +251,7 @@ class Agent:
         self.num_games_played = 0
 
     def determine_available_actions(self, state: StateT) -> tuple[ActionT, ...]:
-        options = ()
+        options: tuple[ActionT, ...] = ()
         if state[2] == 0 and state[3] == 0:  # Bust
             return (None,)
         if state[2] == -1 and state[3] == -1:  # Unrolled dice
@@ -307,16 +331,15 @@ class Smart(Agent):
         for num_episode in range(num_episodes):
             game = Game()
             while not game.game_is_over:
+                # Determine which action to take based on current state
                 action: ActionT
                 if random.random() < self.Q.epsilon or game.state not in self.Q.table:
                     action = super().choose_action(game.state)  # Explore
                 else:
                     action = self.choose_action(game.state)  # Exploit
 
-                game.state
-                self.determine_available_actions(game.state)
-
-                reward = 0
+                # Perform the selected action
+                reward = 0  # TODO: why doesn't manipulating the reward have more of an affect on performance?
                 previous_state = game.state
                 if action is None:
                     game.handle_bust()
@@ -329,14 +352,18 @@ class Smart(Agent):
                     reward = game.state[0]
                 else:
                     raise UnknownActionError(action)
+
+                # Update the Q table based on the last action
                 self.Q.update(previous_state, action, game.state, reward)
-            if evaluate and ((num_episode % 1000) == 0):
+
+            # Perform incremental evaluations during training
+            if evaluate and ((num_episode % (num_episodes / 50)) == 0):
                 self.evaluations.append(
                     (num_episode, self.evaluate(num_episode=num_episode))
                 )
         print(f"{self.name.title()} Agent is done training.")
 
-    def evaluate(self, num_games: int = 1_000, num_episode: int | None = None) -> float:
+    def evaluate(self, num_games: int = 100, num_episode: int | None = None) -> float:
         agent = Smart(
             f"eval_{num_episode}" if num_episode else "eval", Q=deepcopy(self.Q)
         )
@@ -351,7 +378,7 @@ class Smart(Agent):
         _, ax = plt.subplots(figsize=[5, 3])
         assert isinstance(ax, Axes)
         x, y = zip(*self.evaluations)
-        ax.plot(x, y, "ko-", label=self.Q, alpha=0.6)
+        ax.plot(x, y, "k.-", label=self.Q, alpha=0.6)
         ax.legend()
         plt.show()
 
@@ -364,13 +391,13 @@ if __name__ == "__main__":
     smart = Smart(
         "smart",
         Q=QTable(
-            learning_rate=0.2,
-            discount_factor=1.0,
-            epsilon=0.5,
+            learning_rate=0.3,
+            discount_factor=0.9,
+            epsilon=0.7,
         ),
     )
     NUM_TRAIN_GAMES = 10_000
-    smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=False)
+    smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True)
 
     # Evaluate the agents
     agents: list[Agent] = [smart, dumb, risky]
@@ -382,5 +409,5 @@ if __name__ == "__main__":
     for agent in agents:
         agent.print_performance()
 
-    smart.plot_evaluations()
-    print(f"{len(smart.Q.table)=}")
+    if smart.evaluations:
+        smart.plot_evaluations()
