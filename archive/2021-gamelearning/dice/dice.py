@@ -246,12 +246,15 @@ class Game:
 class Agent:
     def __init__(self, name: str) -> None:
         self.name = name
-        self.score = 0
+        self.scores = []
+        self.total_score = 0
         self.best_score = -1
         self.num_games_played = 0
 
     def determine_available_actions(self, state: StateT) -> tuple[ActionT, ...]:
         options: tuple[ActionT, ...] = ()
+        if state[1] == 0:  # Fill
+            return ("stop",)
         if state[2] == 0 and state[3] == 0:  # Bust
             return (None,)
         if state[2] == -1 and state[3] == -1:  # Unrolled dice
@@ -285,18 +288,21 @@ class Agent:
                 game.handle_stop()
             else:
                 raise UnknownActionError(action)
-        self.score += game.state[0]
+        self.scores.append(game.state[0])
+        self.total_score += game.state[0]
         if game.state[0] > self.best_score:
             self.best_score = game.state[0]
         self.num_games_played += 1
 
     def print_performance(self) -> None:
+        scores = sorted(self.scores)
+        median = scores[len(scores) // 2]
         print(
-            f"{self.name.title()} Agent average score: {self.score / self.num_games_played:7.2f} | Best Score: {self.best_score}"
+            f"{self.name.title()} Agent average score: {self.total_score // self.num_games_played:7.0f} | Median: {median:4.0f} | Best Score: {self.best_score}"
         )
 
     def __repr__(self) -> str:
-        return f"<Agent: '{self.name}', score: {self.score}>"
+        return f"<Agent: '{self.name}', score: {self.total_score}>"
 
 
 class RiskyAgent(Agent):
@@ -305,6 +311,20 @@ class RiskyAgent(Agent):
         if "roll" in possible_actions:
             if state[0] < 300:
                 return "roll"
+        return super().choose_action(state)
+
+
+class StopAtNDice(Agent):
+    def __init__(self, name: str, num_dice_to_stop_at: int) -> None:
+        super().__init__(name)
+        self.num_dice_to_stop_at = num_dice_to_stop_at
+
+    def choose_action(self, state: StateT) -> ActionT:
+        possible_actions = self.determine_available_actions(state)
+        if "roll" in possible_actions and "stop" in possible_actions:
+            if state[1] < self.num_dice_to_stop_at:  # or state[0] > 300:
+                return "stop"
+            return "roll"
         return super().choose_action(state)
 
 
@@ -327,7 +347,9 @@ class Smart(Agent):
                 return best_action
         return super().choose_action(state)
 
-    def train(self, num_episodes: int = 1_000, evaluate: bool = False) -> None:
+    def train(
+        self, num_episodes: int = 1_000, evaluate: bool = False, metric: str = "mean"
+    ) -> None:
         for num_episode in range(num_episodes):
             game = Game()
             while not game.game_is_over:
@@ -359,17 +381,24 @@ class Smart(Agent):
             # Perform incremental evaluations during training
             if evaluate and ((num_episode % (num_episodes / 50)) == 0):
                 self.evaluations.append(
-                    (num_episode, self.evaluate(num_episode=num_episode))
+                    (num_episode, self.evaluate(num_episode=num_episode, metric=metric))
                 )
         print(f"{self.name.title()} Agent is done training.")
 
-    def evaluate(self, num_games: int = 100, num_episode: int | None = None) -> float:
+    def evaluate(
+        self, num_games: int = 100, num_episode: int | None = None, metric: str = "mean"
+    ) -> float:
         agent = Smart(
             f"eval_{num_episode}" if num_episode else "eval", Q=deepcopy(self.Q)
         )
         for _ in range(num_games):
             agent.play()
-        return agent.score / agent.num_games_played
+        if metric == "mean":
+            return agent.total_score / agent.num_games_played
+        elif metric == "median":
+            return sorted(agent.scores)[num_games // 2]
+        else:
+            raise Exception(f"Unknown evaluation metric: '{metric}'")
 
     def plot_evaluations(self) -> None:
         if not len(self.evaluations):
@@ -379,6 +408,7 @@ class Smart(Agent):
         assert isinstance(ax, Axes)
         x, y = zip(*self.evaluations)
         ax.plot(x, y, "k.-", label=self.Q, alpha=0.6)
+        ax.set_ylim((0, 350))
         ax.legend()
         plt.show()
 
@@ -386,6 +416,11 @@ class Smart(Agent):
 if __name__ == "__main__":
     dumb = Agent("dumb ")
     risky = RiskyAgent("risky")
+    stop_at_1 = StopAtNDice("stop1", num_dice_to_stop_at=1)
+    stop_at_2 = StopAtNDice("stop2", num_dice_to_stop_at=2)
+    stop_at_3 = StopAtNDice("stop3", num_dice_to_stop_at=3)
+    stop_at_4 = StopAtNDice("stop4", num_dice_to_stop_at=4)
+    stop_at_5 = StopAtNDice("stop5", num_dice_to_stop_at=5)
 
     # Train the smart agent
     smart = Smart(
@@ -397,10 +432,19 @@ if __name__ == "__main__":
         ),
     )
     NUM_TRAIN_GAMES = 10_000
-    smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True)
+    smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True, metric="mean")
 
     # Evaluate the agents
-    agents: list[Agent] = [smart, dumb, risky]
+    agents: list[Agent] = [
+        smart,
+        dumb,
+        risky,
+        stop_at_1,
+        stop_at_2,
+        stop_at_3,
+        stop_at_4,
+        stop_at_5,
+    ]
     NUM_TEST_GAMES = 10_000
     for n in range(NUM_TEST_GAMES):
         for agent in agents:
@@ -408,6 +452,7 @@ if __name__ == "__main__":
 
     for agent in agents:
         agent.print_performance()
+    smart.Q.table
 
     if smart.evaluations:
         smart.plot_evaluations()
