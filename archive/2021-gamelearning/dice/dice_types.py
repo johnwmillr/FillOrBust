@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, TypedDict
 
 
 ActionT = Literal[
@@ -35,6 +35,11 @@ ActionT = Literal[
 ]
 
 StateT = tuple[int, int, int, int, int, int]
+# StateT = TypedDict(
+#     "State",
+#     {"score": int, "num_dice": int, "rolled": dict[str, int], "held": dict[str, int]},
+# )
+
 QTableT = dict[StateT, dict[ActionT, float]]
 
 

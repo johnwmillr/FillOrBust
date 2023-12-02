@@ -1,5 +1,7 @@
 from copy import deepcopy
+from itertools import product
 import random
+from typing import Iterable, cast
 
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
@@ -251,6 +253,23 @@ class Agent:
         self.best_score = -1
         self.num_games_played = 0
 
+    def determine_hold_options_from_dice(self, dice: tuple[int, ...]) -> tuple[ActionT, ...]:
+        # options: dict[int, tuple[str, ...]] = {n: ("0", ) for n in range(1, 7)}
+        options: dict[int, tuple[str, ...]] = {n: ("0", ) for n in [1, 5]}
+        for pointer in [1, 5]:
+            options[pointer] = tuple(map(str, range(dice.count(pointer) + 1)))
+
+        # for triple in [2, 3, 4, 6]:
+        #     count = dice.count(triple)
+        #     if count >= 3:
+        #         options[triple] = ("3", )
+        #         if count == 6:
+        #             options[triple] += ("6", )
+
+        holds = map(lambda x: cast(ActionT, "hold_" + "".join(x)), product(*options.values()))
+        holds = tuple(cast(ActionT, item) for item in holds if not str(item).endswith("00"))
+        return holds
+
     def determine_available_actions(self, state: StateT) -> tuple[ActionT, ...]:
         options: tuple[ActionT, ...] = ()
         if state[1] == 0:  # Fill
@@ -263,11 +282,13 @@ class Agent:
                 options += ("stop",)
             return options
         if state[2] > 0 or state[3] > 0:  # Rolled dice with pointers, ready to hold
-            hold_options: tuple[ActionT, ...] = ()
-            for ones in range(state[2] + 1):
-                for fives in range(state[3] + 1):
-                    if ones or fives:
-                        hold_options += (f"hold_{ones}{fives}",)  # type: ignore
+            dice = (1,) * state[2] + (5,) * state[3]
+            hold_options = self.determine_hold_options_from_dice(dice)
+            # hold_options: tuple[ActionT, ...] = ()
+            # for ones in range(state[2] + 1):
+            #     for fives in range(state[3] + 1):
+            #         if ones or fives:
+            #             hold_options += (f"hold_{ones}{fives}",)  # type: ignore
             return hold_options
         raise Exception(f"Unhandled state: {state=}")
 
