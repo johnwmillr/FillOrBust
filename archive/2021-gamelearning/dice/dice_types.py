@@ -34,13 +34,20 @@ ActionT = Literal[
     "hold_60",
 ]
 
-StateT = tuple[int, int, int, int, int, int]
-# StateT = TypedDict(
-#     "State",
-#     {"score": int, "num_dice": int, "rolled": dict[str, int], "held": dict[str, int]},
-# )
+# StateT = tuple[int, int, int, int, int, int]
+StateT = TypedDict(
+    "StateT",
+    {
+        "hold_score": int,
+        "final_score": int,
+        "num_dice": int,
+        "rolled": dict[int, int],
+        "held": dict[int, int],
+    },
+)
 
-QTableT = dict[StateT, dict[ActionT, float]]
+QTableT = dict[str, dict[str, dict[str, dict[ActionT, float]]]]
+# QTableT = dict[str, dict[ActionT, float]]
 
 
 VALID_HOLDS = (

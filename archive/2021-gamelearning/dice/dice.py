@@ -1,7 +1,8 @@
-from copy import deepcopy
 from itertools import product
+import pickle
 import random
-from typing import Iterable, cast
+import time
+from typing import cast
 
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
@@ -39,28 +40,29 @@ class UnknownActionError(Exception):
 
 # state = (250, 6, -1, -1, 0, 0)  # New turn?
 
-
+# %%
 # ----------------
 state = {
     "score": 0,
     "num_dice": 6,
     "rolled": {
-        "ones": 0,
-        "twos": 3,
-        "threes": 0,
-        "fours": 1,
-        "fives": 1,
-        "sixes": 0,
+        1: 0,
+        2: 3,
+        3: 0,
+        4: 1,
+        5: 1,
+        6: 0,
     },
     "held": {
-        "ones": 1,
-        "twos": 0,
-        "threes": 0,
-        "fours": 0,
-        "fives": 0,
-        "sixes": 0,
+        1: 1,
+        2: 0,
+        3: 0,
+        4: 0,
+        5: 0,
+        6: 0,
     },
 }
+# %%
 
 # Q Table
 # | States  |     Actions     |
@@ -120,7 +122,34 @@ class QTable:
 
     @property
     def empty_actions(self) -> dict[ActionT, float]:
-        return {action: 0 for action in VALID_HOLDS + ("roll", "stop")}
+        # return {action: 0 for action in VALID_HOLDS + ("roll", "stop")}
+        return {"roll": 0, "stop": 0}
+
+    def state_to_Q_table_keys(self, state: StateT) -> tuple[str, ...]:
+        NUM_DICE = 6
+
+        score_key = "score_" + str(state["hold_score"])
+        roll_key = "roll_count_" + "".join(
+            str(state["rolled"][n]) for n in range(1, NUM_DICE + 1)
+        )
+        hold_key = "hold_count_" + "".join(
+            str(state["held"][n]) for n in range(1, NUM_DICE + 1)
+        )
+        return (score_key, roll_key, hold_key)
+
+    def state_in_table(self, state: StateT) -> bool:
+        score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
+        if score_key in self.table:
+            if roll_key in self.table[score_key]:
+                if hold_key in self.table[score_key][roll_key]:
+                    return True
+        return False
+
+    def get_Q_values_for_state(self, state: StateT) -> dict[ActionT, float] | None:
+        if not self.state_in_table(state):
+            return None
+        score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
+        return self.table[score_key][roll_key][hold_key]
 
     def update(
         self, state: StateT, action: ActionT, new_state: StateT, reward: float
@@ -144,105 +173,213 @@ class QTable:
             Q-learning update equation to adjust the Q-value toward the optimal
             value.
         """
-        assert action in self.empty_actions, UnknownActionError(action)
+        # assert action in self.empty_actions, UnknownActionError(action)
 
-        if state not in self.table:
-            self.table[state] = self.empty_actions
-        if new_state not in self.table:
-            self.table[new_state] = self.empty_actions
-        self.table[state][action] += self.learning_rate * (
+        # TODO: need to add "score if stopping now" to state
+        # The top-level key only is updated with the final game score.
+        # We aren't recording mid-game states that would allow us to
+        # decide to stop.
+
+        # Check if we have reward values for `state` and `new_state`
+        for representation in [state, new_state]:
+            score_key, roll_key, hold_key = self.state_to_Q_table_keys(representation)
+
+            if score_key not in self.table:
+                self.table[score_key] = {}
+            if roll_key not in self.table[score_key]:
+                self.table[score_key][roll_key] = {}
+            if hold_key not in self.table[score_key][roll_key]:
+                self.table[score_key][roll_key][hold_key] = {}
+            if action not in self.table[score_key][roll_key][hold_key]:
+                self.table[score_key][roll_key][hold_key][action] = 0.0
+                for a, v in self.empty_actions.items():
+                    self.table[score_key][roll_key][hold_key][a] = v
+
+        # Update the reward base on the action
+        score_state, roll_state, hold_state = self.state_to_Q_table_keys(state)
+        score_new_state, roll_new_state, hold_new_state = self.state_to_Q_table_keys(
+            new_state
+        )
+        self.table[score_state][roll_state][hold_state][
+            action
+        ] += self.learning_rate * (
             reward
-            + self.discount_factor * max(self.table[new_state].values())
-            - self.table[state][action]
+            + self.discount_factor
+            * max(self.table[score_new_state][roll_new_state][hold_new_state].values())
+            - self.table[score_state][roll_state][hold_state][action]
         )
 
 
 class Game:
+    NUM_DICE = 6
+
     def __init__(self) -> None:
         self.score = 0
-        self.num_dice = 6
-        self.num_ones_rolled = -1
-        self.num_fives_rolled = -1
-        self.num_ones_held = 0
-        self.num_fives_held = 0
-        self.stopped = False
+        self.dice: list[int] = self._get_fresh_dice(Game.NUM_DICE)
+        self.holds: dict[int, int] = self._get_fresh_holds()
         self.actions: list[ActionT] = []
+
+    def _get_fresh_dice(self, num_dice: int) -> list[int]:
+        return [-1 for _ in range(num_dice)]
+
+    def _get_fresh_holds(self) -> dict[int, int]:
+        return {n: 0 for n in range(1, Game.NUM_DICE + 1)}
+
+    @property
+    def num_dice(self) -> int:
+        return len(self.dice)
 
     @property
     def state(self) -> StateT:
         return self.to_state()
 
     @property
+    def stopped(self) -> bool:
+        return self.score > 0 and sum(self.holds.values()) == 0
+
+    @property
     def busted(self) -> bool:
         # We rolled and got no pointers
-        return self.num_ones_rolled == 0 and self.num_fives_rolled == 0
-        # return self.calc_score(self.dice) == 0  # TODO: Try something like this
-
-    # @property
-    # def stopped(self) -> bool:
-    #     # We held dice and chose STOP?
-    #     return (self.num_ones_held > 0 or self.num_fives_held > 0)
-
-    def to_state(self) -> StateT:
         return (
-            self.score,
-            self.num_dice,
-            self.num_ones_rolled,
-            self.num_fives_rolled,
-            self.num_ones_held,
-            self.num_fives_held,
+            sum(self.state["rolled"].values()) > 0 and self.calc_score(self.dice) == 0
         )
 
-    def roll_dice(self, num_dice: int) -> tuple[int, ...]:
-        dice = tuple(random.randint(1, 6) for _ in range(num_dice))
-        return dice
+    @property
+    def filled(self) -> bool:
+        return self.num_dice == 0
 
-    def calc_score(self, dice: tuple[int, ...]) -> int:
+    @property
+    def num_ones_rolled(self) -> int:
+        return self.dice.count(1)
+
+    @property
+    def num_ones_held(self) -> int:
+        return self.holds[1]
+
+    @property
+    def num_twos_rolled(self) -> int:
+        return self.dice.count(2)
+
+    @property
+    def num_twos_held(self) -> int:
+        return self.holds[2]
+
+    @property
+    def num_threes_rolled(self) -> int:
+        return self.dice.count(3)
+
+    @property
+    def num_threes_held(self) -> int:
+        return self.holds[3]
+
+    @property
+    def num_fours_rolled(self) -> int:
+        return self.dice.count(4)
+
+    @property
+    def num_fours_held(self) -> int:
+        return self.holds[4]
+
+    @property
+    def num_fives_rolled(self) -> int:
+        return self.dice.count(5)
+
+    @property
+    def num_fives_held(self) -> int:
+        return self.holds[5]
+
+    @property
+    def num_sixes_rolled(self) -> int:
+        return self.dice.count(6)
+
+    @property
+    def num_sixes_held(self) -> int:
+        return self.holds[6]
+
+    def to_state(self) -> StateT:
+        # Calculate score if you stopped now
+        hold_score = 0
+        dice_from_holds: list[int] = []
+        for die, hold_count in self.holds.items():
+            dice_from_holds.extend([die for _ in range(hold_count)])
+        hold_score += self.calc_score(dice_from_holds)
+
+        return {
+            "hold_score": hold_score,
+            "final_score": self.score,
+            "num_dice": self.num_dice,
+            "rolled": {
+                1: self.num_ones_rolled,
+                2: self.num_twos_rolled,
+                3: self.num_threes_rolled,
+                4: self.num_fours_rolled,
+                5: self.num_fives_rolled,
+                6: self.num_sixes_rolled,
+            },
+            "held": {
+                1: self.num_ones_held,
+                2: self.num_twos_held,
+                3: self.num_threes_held,
+                4: self.num_fours_held,
+                5: self.num_fives_held,
+                6: self.num_sixes_held,
+            },
+        }
+
+    def roll_dice(self, num_dice: int) -> None:
+        self.dice = sorted(random.randint(1, 6) for _ in range(num_dice))
+
+    @classmethod
+    def calc_score(cls, dice: list[int]) -> int:
         return 100 * dice.count(1) + 50 * dice.count(5)
-
-    def handle_bust(self) -> None:
-        # self.busted = True
-        self.score = 0
-        return
 
     def handle_roll(self) -> None:
         self.actions.append("roll")
-        dice = self.roll_dice(self.num_dice)
-        self.num_ones_rolled = dice.count(1)
-        self.num_fives_rolled = dice.count(5)
-
-        roll_score = self.calc_score(dice)
-        if roll_score == 0:
+        self.roll_dice(self.num_dice)
+        if self.busted:
             self.handle_bust()
 
-    def handle_stop(self) -> None:
-        # assert self.num_ones_held > 0 or self.num_fives_held > 0, (
-        #     self.num_ones_held,
-        #     self.num_fives_held,
-        # )
-        self.actions.append("stop")
-        self.score += self.calc_score(
-            self.num_ones_held * (1,) + self.num_fives_held * (5,)
-        )
-        self.num_ones_held = 0
-        self.num_fives_held = 0
-        self.stopped = True
-
     def handle_hold(self, hold_action: ActionT) -> None:
-        holds: tuple[int, int] = tuple(map(int, hold_action.split("_")[-1]))  # type: ignore
-        assert holds[0] <= self.num_ones_rolled, (holds[0], self.num_ones_rolled)
-        assert holds[1] <= self.num_fives_rolled, (holds[1], self.num_fives_rolled)
         self.actions.append(hold_action)
+        assert hold_action is not None
+        new_holds: dict[int, int] = {}
+        for die, hold_count in enumerate(hold_action.split("_")[-1], start=1):
+            new_holds[die] = int(hold_count)
 
-        self.num_dice -= sum(holds)
-        self.num_ones_held += holds[0]
-        self.num_fives_held += holds[1]
-        self.num_ones_rolled = -1
-        self.num_fives_rolled = -1
+        assert new_holds[1] <= self.num_ones_rolled, (
+            new_holds[1],
+            self.num_ones_rolled,
+        )
+        assert new_holds[5] <= self.num_fives_rolled, (
+            new_holds[5],
+            self.num_fives_rolled,
+        )
+
+        # Add the new held dice from this roll to the turn's held dice
+        # Also remove the held dice from `self.dice`
+        for die, hold_count in new_holds.items():
+            if hold_count:
+                self.holds[die] += hold_count
+                for _ in range(hold_count):
+                    self.dice.remove(die)
+
+        # Reset dice to indicate that they're ready to be rolled
+        self.dice = self._get_fresh_dice(len(self.dice))
+
+    def handle_bust(self) -> None:
+        self.score = 0
+
+    def handle_stop(self) -> None:
+        self.actions.append("stop")
+        dice_from_holds: list[int] = []
+        for die, hold_count in self.holds.items():
+            dice_from_holds.extend([die for _ in range(hold_count)])
+        self.score += self.calc_score(dice_from_holds)
+        self.holds = self._get_fresh_holds()
 
     @property
-    def game_is_over(self) -> bool:
-        return self.busted or self.stopped
+    def turn_is_over(self) -> bool:
+        return self.busted or self.stopped or self.filled
 
 
 class Agent:
@@ -253,42 +390,56 @@ class Agent:
         self.best_score = -1
         self.num_games_played = 0
 
-    def determine_hold_options_from_dice(self, dice: tuple[int, ...]) -> tuple[ActionT, ...]:
-        # options: dict[int, tuple[str, ...]] = {n: ("0", ) for n in range(1, 7)}
-        options: dict[int, tuple[str, ...]] = {n: ("0", ) for n in [1, 5]}
+    def determine_hold_options_from_dice(self, dice: list[int]) -> tuple[ActionT, ...]:
+        options: dict[int, tuple[str, ...]] = {
+            n: ("0",) for n in range(1, Game.NUM_DICE + 1)
+        }
         for pointer in [1, 5]:
             options[pointer] = tuple(map(str, range(dice.count(pointer) + 1)))
 
-        # for triple in [2, 3, 4, 6]:
-        #     count = dice.count(triple)
-        #     if count >= 3:
-        #         options[triple] = ("3", )
-        #         if count == 6:
-        #             options[triple] += ("6", )
+        for triple in [2, 3, 4, 6]:
+            count = dice.count(triple)
+            if count >= 3:
+                options[triple] = ("3",)
+                if count == 6:
+                    options[triple] += ("6",)
 
-        holds = map(lambda x: cast(ActionT, "hold_" + "".join(x)), product(*options.values()))
-        holds = tuple(cast(ActionT, item) for item in holds if not str(item).endswith("00"))
+        holds = map(
+            lambda x: cast(ActionT, "hold_" + "".join(x)), product(*options.values())
+        )
+        holds = tuple(
+            cast(ActionT, item)
+            for item in holds
+            if not str(item).endswith("0" * Game.NUM_DICE)
+        )
         return holds
 
+    def make_rolled_dice_from_state(self, state: StateT) -> list[int]:
+        dice: list[int] = []
+        for die, value in state["rolled"].items():
+            dice.extend([die for _ in range(value)])
+        return dice
+
     def determine_available_actions(self, state: StateT) -> tuple[ActionT, ...]:
+        dice = self.make_rolled_dice_from_state(state)
         options: tuple[ActionT, ...] = ()
-        if state[1] == 0:  # Fill
+        if state["num_dice"] == 0:  # Fill
             return ("stop",)
-        if state[2] == 0 and state[3] == 0:  # Bust
+        if sum(state["rolled"].values()) > 0 and Game.calc_score(dice) == 0:  # Bust
             return (None,)
-        if state[2] == -1 and state[3] == -1:  # Unrolled dice
+        if state["num_dice"] > sum(state["rolled"].values()):  # Unrolled dice
             options = ("roll",)
-            if state[4] or state[5]:
+            if any(state["held"].values()):
                 options += ("stop",)
             return options
-        if state[2] > 0 or state[3] > 0:  # Rolled dice with pointers, ready to hold
-            dice = (1,) * state[2] + (5,) * state[3]
-            hold_options = self.determine_hold_options_from_dice(dice)
-            # hold_options: tuple[ActionT, ...] = ()
-            # for ones in range(state[2] + 1):
-            #     for fives in range(state[3] + 1):
-            #         if ones or fives:
-            #             hold_options += (f"hold_{ones}{fives}",)  # type: ignore
+
+        # Check whether it's time to hold dice
+        if (
+            sum(state["rolled"].values()) == state["num_dice"]
+        ):  # TODO: Is this always True?
+            hold_options = self.determine_hold_options_from_dice(
+                self.make_rolled_dice_from_state(state)
+            )
             return hold_options
         raise Exception(f"Unhandled state: {state=}")
 
@@ -297,7 +448,7 @@ class Agent:
 
     def play(self) -> None:
         game = Game()  # Empty state for each new episode (i.e. new game)
-        while not game.game_is_over:
+        while not game.turn_is_over:
             action = self.choose_action(game.state)
             if action is None:
                 game.handle_bust()
@@ -309,10 +460,10 @@ class Agent:
                 game.handle_stop()
             else:
                 raise UnknownActionError(action)
-        self.scores.append(game.state[0])
-        self.total_score += game.state[0]
-        if game.state[0] > self.best_score:
-            self.best_score = game.state[0]
+        self.scores.append(game.state["final_score"])
+        self.total_score += game.state["final_score"]
+        if game.state["final_score"] > self.best_score:
+            self.best_score = game.state["final_score"]
         self.num_games_played += 1
 
     def print_performance(self) -> None:
@@ -330,7 +481,7 @@ class RiskyAgent(Agent):
     def choose_action(self, state: StateT) -> ActionT:
         possible_actions = self.determine_available_actions(state)
         if "roll" in possible_actions:
-            if state[0] < 300:
+            if state["num_dice"] > 1:
                 return "roll"
         return super().choose_action(state)
 
@@ -342,11 +493,10 @@ class StopAtNDice(Agent):
 
     def choose_action(self, state: StateT) -> ActionT:
         possible_actions = self.determine_available_actions(state)
-        if "roll" in possible_actions and "stop" in possible_actions:
-            if state[1] < self.num_dice_to_stop_at:  # or state[0] > 300:
-                return "stop"
-            return "roll"
-        return super().choose_action(state)
+        if "stop" in possible_actions and state["num_dice"] <= self.num_dice_to_stop_at:
+            return "stop"
+        possible_actions = [action for action in possible_actions if action != "stop"]
+        return random.choice(possible_actions)  # type: ignore
 
 
 class Smart(Agent):
@@ -357,10 +507,11 @@ class Smart(Agent):
 
     def choose_action(self, state: StateT) -> ActionT:
         assert self.Q is not None, f"{self.name}'s Q Table is empty."
-        if state in self.Q.table:
+
+        if Q_values := self.Q.get_Q_values_for_state(state):
             max_reward = -1.0
             best_action: ActionT | None = None
-            for action, reward in self.Q.table[state].items():
+            for action, reward in Q_values.items():
                 if reward > max_reward:
                     max_reward = reward
                     best_action = action
@@ -371,12 +522,15 @@ class Smart(Agent):
     def train(
         self, num_episodes: int = 1_000, evaluate: bool = False, metric: str = "mean"
     ) -> None:
+        t_start = time.time()
         for num_episode in range(num_episodes):
             game = Game()
-            while not game.game_is_over:
+            while not game.turn_is_over:
                 # Determine which action to take based on current state
                 action: ActionT
-                if random.random() < self.Q.epsilon or game.state not in self.Q.table:
+                if random.random() < self.Q.epsilon or not self.Q.state_in_table(
+                    game.state
+                ):
                     action = super().choose_action(game.state)  # Explore
                 else:
                     action = self.choose_action(game.state)  # Exploit
@@ -386,13 +540,14 @@ class Smart(Agent):
                 previous_state = game.state
                 if action is None:
                     game.handle_bust()
+                    # reward = -100000000
                 elif action == "roll":
                     game.handle_roll()
                 elif action.startswith("hold"):
                     game.handle_hold(action)
                 elif action == "stop":
                     game.handle_stop()
-                    reward = game.state[0]
+                    reward = game.state["final_score"]
                 else:
                     raise UnknownActionError(action)
 
@@ -404,14 +559,15 @@ class Smart(Agent):
                 self.evaluations.append(
                     (num_episode, self.evaluate(num_episode=num_episode, metric=metric))
                 )
-        print(f"{self.name.title()} Agent is done training.")
+        elapsed = (time.time() - t_start) / 60
+        print(
+            f"{self.name.title()} Agent is done training. ({num_episodes} episodes.) ({elapsed:0.1f} minutes)"
+        )
 
     def evaluate(
         self, num_games: int = 100, num_episode: int | None = None, metric: str = "mean"
     ) -> float:
-        agent = Smart(
-            f"eval_{num_episode}" if num_episode else "eval", Q=deepcopy(self.Q)
-        )
+        agent = Smart(f"eval_{num_episode}" if num_episode else "eval", Q=self.Q)
         for _ in range(num_games):
             agent.play()
         if metric == "mean":
@@ -435,45 +591,42 @@ class Smart(Agent):
 
 
 if __name__ == "__main__":
-    dumb = Agent("dumb ")
-    risky = RiskyAgent("risky")
-    stop_at_1 = StopAtNDice("stop1", num_dice_to_stop_at=1)
-    stop_at_2 = StopAtNDice("stop2", num_dice_to_stop_at=2)
-    stop_at_3 = StopAtNDice("stop3", num_dice_to_stop_at=3)
-    stop_at_4 = StopAtNDice("stop4", num_dice_to_stop_at=4)
-    stop_at_5 = StopAtNDice("stop5", num_dice_to_stop_at=5)
+    print("Start!")
 
     # Train the smart agent
     smart = Smart(
         "smart",
         Q=QTable(
-            learning_rate=0.3,
+            learning_rate=0.7,
             discount_factor=0.9,
-            epsilon=0.7,
+            epsilon=0.9,
         ),
     )
+
     NUM_TRAIN_GAMES = 10_000
-    smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True, metric="mean")
+    smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=False, metric="mean")
 
     # Evaluate the agents
     agents: list[Agent] = [
         smart,
-        dumb,
-        risky,
-        stop_at_1,
-        stop_at_2,
-        stop_at_3,
-        stop_at_4,
-        stop_at_5,
+        Agent("dumb "),
+        # RiskyAgent("risky"),
+        StopAtNDice("stop2", num_dice_to_stop_at=2),
+        StopAtNDice("stop3", num_dice_to_stop_at=3),
     ]
     NUM_TEST_GAMES = 10_000
-    for n in range(NUM_TEST_GAMES):
-        for agent in agents:
+    for agent in agents:
+        for n in range(NUM_TEST_GAMES):
             agent.play()
 
     for agent in agents:
         agent.print_performance()
-    smart.Q.table
 
-    if smart.evaluations:
-        smart.plot_evaluations()
+    # if smart.evaluations:
+    #     smart.plot_evaluations()
+
+    if NUM_TRAIN_GAMES >= 1_000_000:
+        fn = f"./dice/trained_agent_{smart.num_games_played}.pkl"
+        with open(fn, "wb") as fout:
+            print(f"Saved trained agent to '{fn}'")
+            pickle.dump(smart, fout)
