@@ -7,7 +7,7 @@ from typing import cast
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 
-from dice_types import ActionT, StateT, QTableT, VALID_HOLDS
+from dice_types import ActionT, StateT, QTableT
 
 
 class UnknownActionError(Exception):
@@ -130,26 +130,25 @@ class QTable:
 
         score_key = "score_" + str(state["hold_score"])
         roll_key = "roll_count_" + "".join(
-            str(state["rolled"][n]) for n in range(1, NUM_DICE + 1)
+            str(state["rolled"][n]) for n in range(1, NUM_DICE + 1) if n in [1, 5]
         )
         hold_key = "hold_count_" + "".join(
-            str(state["held"][n]) for n in range(1, NUM_DICE + 1)
+            str(state["held"][n]) for n in range(1, NUM_DICE + 1) if n in [1, 5]
         )
         return (score_key, roll_key, hold_key)
 
     def state_in_table(self, state: StateT) -> bool:
         score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
-        if score_key in self.table:
-            if roll_key in self.table[score_key]:
-                if hold_key in self.table[score_key][roll_key]:
-                    return True
+        if roll_key in self.table:
+            if hold_key in self.table[roll_key]:
+                return True
         return False
 
     def get_Q_values_for_state(self, state: StateT) -> dict[ActionT, float] | None:
         if not self.state_in_table(state):
             return None
         score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
-        return self.table[score_key][roll_key][hold_key]
+        return self.table[roll_key][hold_key]
 
     def update(
         self, state: StateT, action: ActionT, new_state: StateT, reward: float
@@ -180,33 +179,36 @@ class QTable:
         # We aren't recording mid-game states that would allow us to
         # decide to stop.
 
+        # assert action is not None
+        # if action.startswith("hold_"):
+        #     holds = list(action.split("_")[1])
+        #     action = "hold_" + str(holds[0]) + str(holds[4])
+
         # Check if we have reward values for `state` and `new_state`
         for representation in [state, new_state]:
             score_key, roll_key, hold_key = self.state_to_Q_table_keys(representation)
 
-            if score_key not in self.table:
-                self.table[score_key] = {}
-            if roll_key not in self.table[score_key]:
-                self.table[score_key][roll_key] = {}
-            if hold_key not in self.table[score_key][roll_key]:
-                self.table[score_key][roll_key][hold_key] = {}
-            if action not in self.table[score_key][roll_key][hold_key]:
-                self.table[score_key][roll_key][hold_key][action] = 0.0
+            # if score_key not in self.table:
+            #     self.table[score_key] = {}
+            if roll_key not in self.table:
+                self.table[roll_key] = {}
+            if hold_key not in self.table[roll_key]:
+                self.table[roll_key][hold_key] = {}
+            if action not in self.table[roll_key][hold_key]:
+                self.table[roll_key][hold_key][action] = 0.0
                 for a, v in self.empty_actions.items():
-                    self.table[score_key][roll_key][hold_key][a] = v
+                    self.table[roll_key][hold_key][a] = v
 
         # Update the reward base on the action
         score_state, roll_state, hold_state = self.state_to_Q_table_keys(state)
         score_new_state, roll_new_state, hold_new_state = self.state_to_Q_table_keys(
             new_state
         )
-        self.table[score_state][roll_state][hold_state][
-            action
-        ] += self.learning_rate * (
+        self.table[roll_state][hold_state][action] += self.learning_rate * (
             reward
             + self.discount_factor
-            * max(self.table[score_new_state][roll_new_state][hold_new_state].values())
-            - self.table[score_state][roll_state][hold_state][action]
+            * max(self.table[roll_new_state][hold_new_state].values())
+            - self.table[roll_state][hold_state][action]
         )
 
 
@@ -371,10 +373,7 @@ class Game:
 
     def handle_stop(self) -> None:
         self.actions.append("stop")
-        dice_from_holds: list[int] = []
-        for die, hold_count in self.holds.items():
-            dice_from_holds.extend([die for _ in range(hold_count)])
-        self.score += self.calc_score(dice_from_holds)
+        self.score += self.state["hold_score"]
         self.holds = self._get_fresh_holds()
 
     @property
@@ -390,19 +389,22 @@ class Agent:
         self.best_score = -1
         self.num_games_played = 0
 
-    def determine_hold_options_from_dice(self, dice: list[int]) -> tuple[ActionT, ...]:
+    def determine_hold_options_from_dice(
+        self, dice: list[int], allow_triples: bool = False
+    ) -> tuple[ActionT, ...]:
         options: dict[int, tuple[str, ...]] = {
             n: ("0",) for n in range(1, Game.NUM_DICE + 1)
         }
         for pointer in [1, 5]:
             options[pointer] = tuple(map(str, range(dice.count(pointer) + 1)))
 
-        for triple in [2, 3, 4, 6]:
-            count = dice.count(triple)
-            if count >= 3:
-                options[triple] = ("3",)
-                if count == 6:
-                    options[triple] += ("6",)
+        if allow_triples:
+            for triple in [2, 3, 4, 6]:
+                count = dice.count(triple)
+                if count >= 3:
+                    options[triple] = ("3",)
+                    if count == 6:
+                        options[triple] += ("6",)
 
         holds = map(
             lambda x: cast(ActionT, "hold_" + "".join(x)), product(*options.values())
@@ -421,15 +423,17 @@ class Agent:
         return dice
 
     def determine_available_actions(self, state: StateT) -> tuple[ActionT, ...]:
-        dice = self.make_rolled_dice_from_state(state)
         options: tuple[ActionT, ...] = ()
         if state["num_dice"] == 0:  # Fill
             return ("stop",)
-        if sum(state["rolled"].values()) > 0 and Game.calc_score(dice) == 0:  # Bust
+        if (
+            sum(state["rolled"].values()) > 0
+            and Game.calc_score(self.make_rolled_dice_from_state(state)) == 0
+        ):  # Bust
             return (None,)
         if state["num_dice"] > sum(state["rolled"].values()):  # Unrolled dice
             options = ("roll",)
-            if any(state["held"].values()):
+            if state["hold_score"]:
                 options += ("stop",)
             return options
 
@@ -495,6 +499,7 @@ class StopAtNDice(Agent):
         possible_actions = self.determine_available_actions(state)
         if "stop" in possible_actions and state["num_dice"] <= self.num_dice_to_stop_at:
             return "stop"
+
         possible_actions = [action for action in possible_actions if action != "stop"]
         return random.choice(possible_actions)  # type: ignore
 
@@ -590,6 +595,18 @@ class Smart(Agent):
         plt.show()
 
 
+if False and __name__ == "__main__":
+    num_dice = 6
+    num_games = 1000
+    scores = []
+    for n in range(num_games):
+        game = Game()
+        game.roll_dice(num_dice)
+        scores.append(game.calc_score(game.dice))
+
+    print(f"Average score: {sum(scores) / num_games}")
+
+
 if __name__ == "__main__":
     print("Start!")
 
@@ -597,24 +614,30 @@ if __name__ == "__main__":
     smart = Smart(
         "smart",
         Q=QTable(
-            learning_rate=0.7,
-            discount_factor=0.9,
-            epsilon=0.9,
+            learning_rate=0.1,
+            discount_factor=0.8,
+            epsilon=0.7,
         ),
     )
 
-    NUM_TRAIN_GAMES = 10_000
-    smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=False, metric="mean")
+    agents: list[Agent] = [
+        # smart,
+        # Agent("dumb "),
+        # RiskyAgent("risky"),
+        # StopAtNDice("stop1", num_dice_to_stop_at=1),
+        # StopAtNDice("stop2", num_dice_to_stop_at=2),
+        # StopAtNDice("stop3", num_dice_to_stop_at=3),
+        # StopAtNDice("stop4", num_dice_to_stop_at=4),
+        # StopAtNDice("stop5", num_dice_to_stop_at=5),
+        StopAtNDice("stop6", num_dice_to_stop_at=6),
+    ]
+
+    NUM_TRAIN_GAMES = 1_000
+    if smart in agents:
+        smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=False, metric="mean")
 
     # Evaluate the agents
-    agents: list[Agent] = [
-        smart,
-        Agent("dumb "),
-        # RiskyAgent("risky"),
-        StopAtNDice("stop2", num_dice_to_stop_at=2),
-        StopAtNDice("stop3", num_dice_to_stop_at=3),
-    ]
-    NUM_TEST_GAMES = 10_000
+    NUM_TEST_GAMES = 1_000
     for agent in agents:
         for n in range(NUM_TEST_GAMES):
             agent.play()
@@ -622,8 +645,8 @@ if __name__ == "__main__":
     for agent in agents:
         agent.print_performance()
 
-    # if smart.evaluations:
-    #     smart.plot_evaluations()
+    if smart.evaluations:
+        smart.plot_evaluations()
 
     if NUM_TRAIN_GAMES >= 1_000_000:
         fn = f"./dice/trained_agent_{smart.num_games_played}.pkl"

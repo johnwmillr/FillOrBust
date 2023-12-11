@@ -46,7 +46,7 @@ StateT = TypedDict(
     },
 )
 
-QTableT = dict[str, dict[str, dict[str, dict[ActionT, float]]]]
+QTableT = dict[str, dict[str, dict[ActionT, float]]]
 # QTableT = dict[str, dict[ActionT, float]]
 
 
