@@ -60,7 +60,7 @@ class QTable:
     def state_to_Q_table_keys(self, state: StateT) -> tuple[str, ...]:
         NUM_DICE = 6
 
-        score_key = "score_" + str(state["hold_score"])
+        score_key = "score_" + str(state["final_score"])
         roll_key = "roll_count_" + "".join(
             str(state["rolled"][n]) for n in range(1, NUM_DICE + 1)
         )

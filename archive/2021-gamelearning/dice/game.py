@@ -90,15 +90,7 @@ class Game:
         return self.holds[6]
 
     def to_state(self) -> StateT:
-        # Calculate score if you stopped now
-        hold_score = 0
-        dice_from_holds: list[int] = []
-        for die, hold_count in self.holds.items():
-            dice_from_holds.extend([die for _ in range(hold_count)])
-        hold_score += self.calc_score(dice_from_holds)
-
         return {
-            "hold_score": hold_score,
             "final_score": self.score,
             "num_dice": self.num_dice,
             "rolled": {
@@ -164,7 +156,13 @@ class Game:
 
     def handle_stop(self) -> None:
         self.actions.append("stop")
-        self.score += self.state["hold_score"]
+        hold_score = 0
+        dice_from_holds: list[int] = []
+        for die, hold_count in self.holds.items():
+            dice_from_holds.extend([die for _ in range(hold_count)])
+        hold_score += self.calc_score(dice_from_holds)
+
+        self.score += hold_score
         self.holds = self._get_fresh_holds()
 
     @property

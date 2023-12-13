@@ -64,7 +64,7 @@ class Agent:
             return (None,)
         if state["num_dice"] > sum(state["rolled"].values()):  # Unrolled dice
             options = ("roll",)
-            if state["hold_score"]:
+            if any(state["held"].values()):
                 options += ("stop",)
             return options
 
@@ -190,7 +190,7 @@ class Smart(Agent):
                 self.Q.update(previous_state, action, game.state, reward)
 
             # Perform incremental evaluations during training
-            if evaluate and ((num_episode % (num_episodes / 100)) == 0):
+            if evaluate and ((num_episode % (num_episodes / 50)) == 0):
                 self.evaluations.append(
                     (num_episode, self.evaluate(num_episode=num_episode, metric=metric))
                 )
