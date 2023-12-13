@@ -1,6 +1,6 @@
 import random
 
-from .types import ActionT, StateT
+from dice.types import ActionT, StateT
 
 
 class Game:

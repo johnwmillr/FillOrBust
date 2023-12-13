@@ -1,4 +1,4 @@
-from .types import ActionT, StateT, QTableT
+from dice.types import ActionT, StateT, QTableT
 
 
 class UnknownActionError(Exception):
@@ -55,7 +55,6 @@ class QTable:
 
     @property
     def empty_actions(self) -> dict[ActionT, float]:
-        # return {action: 0 for action in VALID_HOLDS + ("roll", "stop")}
         return {"roll": 0, "stop": 0}
 
     def state_to_Q_table_keys(self, state: StateT) -> tuple[str, ...]:
@@ -63,34 +62,49 @@ class QTable:
 
         score_key = "score_" + str(state["hold_score"])
         roll_key = "roll_count_" + "".join(
-            str(state["rolled"][n]) for n in range(1, NUM_DICE + 1) if n in [1, 5]
+            str(state["rolled"][n]) for n in range(1, NUM_DICE + 1)
         )
         hold_key = "hold_count_" + "".join(
-            str(state["held"][n]) for n in range(1, NUM_DICE + 1) if n in [1, 5]
+            str(state["held"][n]) for n in range(1, NUM_DICE + 1)
         )
         return (score_key, roll_key, hold_key)
 
     def state_in_table(self, state: StateT) -> bool:
         score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
-        if roll_key in self.table:
-            if hold_key in self.table[roll_key]:
-                return True
+        if score_key in self.table:
+            if roll_key in self.table[score_key]:
+                if hold_key in self.table[score_key][roll_key]:
+                    return True
         return False
 
-    def get_Q_values_for_state(self, state: StateT) -> dict[ActionT, float] | None:
+    def get_Q_values_for_state(self, state: StateT) -> dict[ActionT, float]:
         if not self.state_in_table(state):
-            return None
+            return {}
         score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
-        return self.table[roll_key][hold_key]
+        return self.table[score_key][roll_key][hold_key]
+
+    def assign_value_to_state_and_action(
+        self, state: StateT, action: ActionT, value: float, overwrite: bool = True
+    ) -> None:
+        score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
+
+        if score_key not in self.table:
+            self.table[score_key] = {}
+        if roll_key not in self.table[score_key]:
+            self.table[score_key][roll_key] = {}
+        if hold_key not in self.table[score_key][roll_key]:
+            self.table[score_key][roll_key][hold_key] = {}
+        if overwrite or (action not in self.table[score_key][roll_key][hold_key]):
+            self.table[score_key][roll_key][hold_key][action] = value
 
     def update(
-        self, state: StateT, action: ActionT, new_state: StateT, reward: float
+        self, current_state: StateT, action: ActionT, new_state: StateT, reward: float
     ) -> None:
         """
         Update the Q-table based on the observed state, action, new state, and reward.
 
         Args:
-            state: The current state.
+            current_state: The current state.
             action: The action taken in the current state.
             new_state: The resulting new state after taking the action.
             reward: The immediate reward obtained after taking the action.
@@ -112,34 +126,16 @@ class QTable:
         # We aren't recording mid-game states that would allow us to
         # decide to stop.
 
-        # assert action is not None
-        # if action.startswith("hold_"):
-        #     holds = list(action.split("_")[1])
-        #     action = "hold_" + str(holds[0]) + str(holds[4])
-
         # Check if we have reward values for `state` and `new_state`
-        for representation in [state, new_state]:
-            score_key, roll_key, hold_key = self.state_to_Q_table_keys(representation)
+        self.assign_value_to_state_and_action(current_state, action, 0.0, overwrite=False)
+        # self.assign_value_to_state_and_action(new_state, action, 0.0, overwrite=False)
 
-            # if score_key not in self.table:
-            #     self.table[score_key] = {}
-            if roll_key not in self.table:
-                self.table[roll_key] = {}
-            if hold_key not in self.table[roll_key]:
-                self.table[roll_key][hold_key] = {}
-            if action not in self.table[roll_key][hold_key]:
-                self.table[roll_key][hold_key][action] = 0.0
-                for a, v in self.empty_actions.items():
-                    self.table[roll_key][hold_key][a] = v
-
-        # Update the reward base on the action
-        score_state, roll_state, hold_state = self.state_to_Q_table_keys(state)
-        score_new_state, roll_new_state, hold_new_state = self.state_to_Q_table_keys(
-            new_state
+        # Calculate the new Q-value for this action/state combo
+        current_q_value = self.get_Q_values_for_state(current_state)[action]
+        max_next_q_value = max(
+            self.get_Q_values_for_state(new_state).values(), default=0
         )
-        self.table[roll_state][hold_state][action] += self.learning_rate * (
-            reward
-            + self.discount_factor
-            * max(self.table[roll_new_state][hold_new_state].values())
-            - self.table[roll_state][hold_state][action]
+        updated_q_value = current_q_value + self.learning_rate * (
+            reward + self.discount_factor * max_next_q_value - current_q_value
         )
+        self.assign_value_to_state_and_action(current_state, action, updated_q_value)
