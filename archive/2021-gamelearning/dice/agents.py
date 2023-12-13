@@ -1,4 +1,5 @@
 from itertools import product
+import pickle
 import random
 import time
 from typing import cast
@@ -6,9 +7,9 @@ from typing import cast
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 
-from game import Game
-from q import QTable, UnknownActionError
-from .types import ActionT, StateT
+from dice.game import Game
+from dice.q import QTable, UnknownActionError
+from dice.types import ActionT, StateT
 
 
 class Agent:
@@ -104,7 +105,7 @@ class Agent:
         scores = sorted(self.scores)
         median = scores[len(scores) // 2]
         print(
-            f"{self.name.title()} Agent average score: {self.total_score // self.num_games_played:7.0f} | Median: {median:4.0f} | Best Score: {self.best_score}"
+            f"{self.name.title()} Agent average score: {self.total_score // self.num_games_played:7.0f} | Median: {median:4.0f} | Best Score: {self.best_score} | ({len(self.scores)} Games)"
         )
 
     def __repr__(self) -> str:
@@ -145,7 +146,7 @@ class Smart(Agent):
 
         if Q_values := self.Q.get_Q_values_for_state(state):
             max_reward = -1.0
-            best_action: ActionT | None = None
+            best_action: ActionT = None
             for action, reward in Q_values.items():
                 if reward > max_reward:
                     max_reward = reward
@@ -175,7 +176,6 @@ class Smart(Agent):
                 previous_state = game.state
                 if action is None:
                     game.handle_bust()
-                    # reward = -100000000
                 elif action == "roll":
                     game.handle_roll()
                 elif action.startswith("hold"):
@@ -190,7 +190,7 @@ class Smart(Agent):
                 self.Q.update(previous_state, action, game.state, reward)
 
             # Perform incremental evaluations during training
-            if evaluate and ((num_episode % (num_episodes / 50)) == 0):
+            if evaluate and ((num_episode % (num_episodes / 100)) == 0):
                 self.evaluations.append(
                     (num_episode, self.evaluate(num_episode=num_episode, metric=metric))
                 )
@@ -223,3 +223,8 @@ class Smart(Agent):
         ax.set_ylim((0, 350))
         ax.legend()
         plt.show()
+
+    def save(self, fn: str) -> None:
+        with open(fn, "wb") as fout:
+            pickle.dump(self, fout)
+            print(f"Saved trained agent to '{fn}'")
