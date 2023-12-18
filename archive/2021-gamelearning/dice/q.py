@@ -50,7 +50,7 @@ class QTable:
 
     def __repr__(self) -> str:
         return (
-            f"<QTable: {self.learning_rate=}, {self.discount_factor}, {self.epsilon=}>"
+            f"<QTable: {self.learning_rate=}, {self.discount_factor=}, {self.epsilon=}>"
         )
 
     @property
@@ -60,7 +60,7 @@ class QTable:
     def state_to_Q_table_keys(self, state: StateT) -> tuple[str, ...]:
         NUM_DICE = 6
 
-        score_key = "score_" + str(state["final_score"])
+        score_key = "score_" + str(state["score"])
         roll_key = "roll_count_" + "".join(
             str(state["rolled"][n]) for n in range(1, NUM_DICE + 1)
         )
@@ -71,31 +71,31 @@ class QTable:
 
     def state_in_table(self, state: StateT) -> bool:
         score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
-        if score_key in self.table:
-            if roll_key in self.table[score_key]:
-                if hold_key in self.table[score_key][roll_key]:
-                    return True
+        # if score_key in self.table:
+        if roll_key in self.table:
+            if hold_key in self.table[roll_key]:
+                return True
         return False
 
     def get_Q_values_for_state(self, state: StateT) -> dict[ActionT, float]:
         if not self.state_in_table(state):
             return {}
         score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
-        return self.table[score_key][roll_key][hold_key]
+        return self.table[roll_key][hold_key]
 
     def assign_value_to_state_and_action(
         self, state: StateT, action: ActionT, value: float, overwrite: bool = True
     ) -> None:
         score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
 
-        if score_key not in self.table:
-            self.table[score_key] = {}
-        if roll_key not in self.table[score_key]:
-            self.table[score_key][roll_key] = {}
-        if hold_key not in self.table[score_key][roll_key]:
-            self.table[score_key][roll_key][hold_key] = {}
-        if overwrite or (action not in self.table[score_key][roll_key][hold_key]):
-            self.table[score_key][roll_key][hold_key][action] = value
+        # if score_key not in self.table:
+        #     self.table[score_key] = {}
+        if roll_key not in self.table:
+            self.table[roll_key] = {}
+        if hold_key not in self.table[roll_key]:
+            self.table[roll_key][hold_key] = {}
+        if overwrite or (action not in self.table[roll_key][hold_key]):
+            self.table[roll_key][hold_key][action] = value
 
     def update(
         self, current_state: StateT, action: ActionT, new_state: StateT, reward: float
@@ -120,11 +120,6 @@ class QTable:
             value.
         """
         # assert action in self.empty_actions, UnknownActionError(action)
-
-        # TODO: need to add "score if stopping now" to state
-        # The top-level key only is updated with the final game score.
-        # We aren't recording mid-game states that would allow us to
-        # decide to stop.
 
         # Check if we have reward values for `state` and `new_state`
         self.assign_value_to_state_and_action(current_state, action, 0.0, overwrite=False)

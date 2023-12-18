@@ -15,22 +15,30 @@ from dice.types import ActionT, StateT
 class Agent:
     def __init__(self, name: str) -> None:
         self.name = name
-        self.scores = []
+        self.scores: list[int] = []
         self.total_score = 0
         self.best_score = -1
         self.num_games_played = 0
+        self.actions = []
+        self.num_actions_in_game = []
 
     def determine_hold_options_from_dice(
-        self, dice: list[int], allow_triples: bool = False
+        self,
+        dice: list[int],
+        allow_triples: bool = False,
+        allow_straights: bool = False,
     ) -> tuple[ActionT, ...]:
+        # TODO: Explain what `options` is
         options: dict[int, tuple[str, ...]] = {
             n: ("0",) for n in range(1, Game.NUM_DICE + 1)
         }
+
+        # TODO: Make sure we're covering all possible hold options
         for pointer in [1, 5]:
             options[pointer] = tuple(map(str, range(dice.count(pointer) + 1)))
 
         if allow_triples:
-            for triple in [2, 3, 4, 6]:
+            for triple in range(1, Game.NUM_DICE + 1):
                 count = dice.count(triple)
                 if count >= 3:
                     options[triple] = ("3",)
@@ -45,7 +53,17 @@ class Agent:
             for item in holds
             if not str(item).endswith("0" * Game.NUM_DICE)
         )
-        return holds
+        if allow_straights:
+            # Check for a straight
+            # TODO: this should be done above
+            if dice == list(range(1, Game.NUM_DICE + 1)):
+                holds += ("hold_111111",)
+
+        # Check that all holds are valid
+        for hold in holds:
+            assert sum(map(int, str(hold).split("_")[-1])) <= Game.NUM_DICE, hold
+
+        return holds  # type: ignore
 
     def make_rolled_dice_from_state(self, state: StateT) -> list[int]:
         dice: list[int] = []
@@ -54,6 +72,7 @@ class Agent:
         return dice
 
     def determine_available_actions(self, state: StateT) -> tuple[ActionT, ...]:
+        # TODO: validate all of this logic
         options: tuple[ActionT, ...] = ()
         if state["num_dice"] == 0:  # Fill
             return ("stop",)
@@ -62,18 +81,18 @@ class Agent:
             and Game.calc_score(self.make_rolled_dice_from_state(state)) == 0
         ):  # Bust
             return (None,)
-        if state["num_dice"] > sum(state["rolled"].values()):  # Unrolled dice
+        if sum(state["rolled"].values()) == 0:  # Unrolled dice
             options = ("roll",)
             if any(state["held"].values()):
                 options += ("stop",)
             return options
 
         # Check whether it's time to hold dice
-        if (
-            sum(state["rolled"].values()) == state["num_dice"]
-        ):  # TODO: Is this always True?
+        if any(state["rolled"].values()):
             hold_options = self.determine_hold_options_from_dice(
-                self.make_rolled_dice_from_state(state)
+                self.make_rolled_dice_from_state(state),
+                allow_triples=True,
+                allow_straights=True,
             )
             return hold_options
         raise Exception(f"Unhandled state: {state=}")
@@ -95,10 +114,10 @@ class Agent:
                 game.handle_stop()
             else:
                 raise UnknownActionError(action)
-        self.scores.append(game.state["final_score"])
-        self.total_score += game.state["final_score"]
-        if game.state["final_score"] > self.best_score:
-            self.best_score = game.state["final_score"]
+        self.scores.append(game.state["score"])
+        self.total_score += game.state["score"]
+        if game.state["score"] > self.best_score:
+            self.best_score = game.state["score"]
         self.num_games_played += 1
 
     def print_performance(self) -> None:
@@ -139,12 +158,13 @@ class Smart(Agent):
     def __init__(self, name: str, Q: QTable | None = None) -> None:
         super().__init__(name)
         self.Q = QTable() if Q is None else Q
-        self.evaluations: list[tuple[int, float]] = []
+        self.evaluations: list[tuple[int, float, int]] = []
 
     def choose_action(self, state: StateT) -> ActionT:
         assert self.Q is not None, f"{self.name}'s Q Table is empty."
 
         if Q_values := self.Q.get_Q_values_for_state(state):
+            # TODO: Optimize for shortest number of turns till 10k
             max_reward = -1.0
             best_action: ActionT = None
             for action, reward in Q_values.items():
@@ -155,9 +175,7 @@ class Smart(Agent):
                 return best_action
         return super().choose_action(state)
 
-    def train(
-        self, num_episodes: int = 1_000, evaluate: bool = False, metric: str = "mean"
-    ) -> None:
+    def train(self, num_episodes: int = 1_000, evaluate: bool = False) -> None:
         t_start = time.time()
         for num_episode in range(num_episodes):
             game = Game()
@@ -176,23 +194,26 @@ class Smart(Agent):
                 previous_state = game.state
                 if action is None:
                     game.handle_bust()
+                    reward = -10000000000
                 elif action == "roll":
                     game.handle_roll()
                 elif action.startswith("hold"):
                     game.handle_hold(action)
                 elif action == "stop":
                     game.handle_stop()
-                    reward = game.state["final_score"]
+                    reward = game.state["score"] ** 2
                 else:
                     raise UnknownActionError(action)
 
                 # Update the Q table based on the last action
                 self.Q.update(previous_state, action, game.state, reward)
+            self.actions.append(game.actions)
+            self.num_actions_in_game.append(len(game.actions))
 
             # Perform incremental evaluations during training
-            if evaluate and ((num_episode % (num_episodes / 50)) == 0):
+            if evaluate and ((num_episode % (num_episodes / 100)) == 0):
                 self.evaluations.append(
-                    (num_episode, self.evaluate(num_episode=num_episode, metric=metric))
+                    (num_episode, *self.evaluate(num_episode=num_episode))
                 )
         elapsed = (time.time() - t_start) / 60
         print(
@@ -200,17 +221,17 @@ class Smart(Agent):
         )
 
     def evaluate(
-        self, num_games: int = 100, num_episode: int | None = None, metric: str = "mean"
-    ) -> float:
+        self,
+        num_games: int = 100,
+        num_episode: int | None = None,
+    ) -> tuple[float, int]:
         agent = Smart(f"eval_{num_episode}" if num_episode else "eval", Q=self.Q)
         for _ in range(num_games):
             agent.play()
-        if metric == "mean":
-            return agent.total_score / agent.num_games_played
-        elif metric == "median":
-            return sorted(agent.scores)[num_games // 2]
-        else:
-            raise Exception(f"Unknown evaluation metric: '{metric}'")
+
+        mean = agent.total_score / agent.num_games_played
+        median = sorted(agent.scores)[num_games // 2]
+        return mean, median
 
     def plot_evaluations(self) -> None:
         if not len(self.evaluations):
@@ -218,9 +239,19 @@ class Smart(Agent):
             return
         _, ax = plt.subplots(figsize=[5, 3])
         assert isinstance(ax, Axes)
-        x, y = zip(*self.evaluations)
-        ax.plot(x, y, "k.-", label=self.Q, alpha=0.6)
-        ax.set_ylim((0, 350))
+
+        x, mean, median = zip(*self.evaluations)
+        params = (
+            str(self.Q)
+            .split(": ", 1)[1]
+            .strip(">")
+            .replace(", ", "\n")
+            .replace("self.", "")
+        )
+        ax.plot(x, mean, "k.-", label=params, alpha=0.6)
+        ax.plot(x, median, "r.-", label="median", alpha=0.4)
+        ax.grid(True, alpha=0.4)
+        ax.set_ylim((0, 750))
         ax.legend()
         plt.show()
 
