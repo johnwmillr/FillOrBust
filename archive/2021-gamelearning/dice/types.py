@@ -3,8 +3,10 @@ from typing import Literal, TypedDict
 
 ActionT = Literal[
     None,
+    "bust",
     "roll",
     "stop",
+    "fill",
 ]
 
 StateT = TypedDict(

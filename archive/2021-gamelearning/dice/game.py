@@ -7,12 +7,14 @@ class Game:
     NUM_DICE = 6
     TRIPLE_VALUES = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
 
-    def __init__(self) -> None:
-        self.score = 0
+    def __init__(self, max_score: int = 10_000) -> None:
+        self.turn_score = 0
+        self.game_score = 0
         self.dice: list[int] = self._get_fresh_dice(Game.NUM_DICE)
         self.holds: dict[int, int] = self._get_fresh_holds()
         self.actions: list[ActionT] = []
-        self.dice_states = []
+        self.dice_states: list[list[int]] = []
+        self.max_score = max_score
 
     def _get_fresh_dice(self, num_dice: int) -> list[int]:
         return [-1 for _ in range(num_dice)]
@@ -30,7 +32,7 @@ class Game:
 
     @property
     def stopped(self) -> bool:
-        return self.score > 0 and sum(self.holds.values()) == 0
+        return self.turn_score > 0 and sum(self.holds.values()) == 0
 
     @property
     def busted(self) -> bool:
@@ -93,7 +95,7 @@ class Game:
 
     def to_state(self) -> StateT:
         return {
-            "score": self.score,
+            "score": self.game_score,
             "num_dice": self.num_dice,
             "rolled": {
                 1: self.num_ones_rolled,
@@ -170,12 +172,20 @@ class Game:
                 for _ in range(hold_count):
                     self.dice.remove(die)
 
+        if self.filled:
+            self.handle_fill()
+            return
+
         # Reset dice to indicate that they're ready to be rolled
         self.dice = self._get_fresh_dice(len(self.dice))
 
     def handle_bust(self) -> None:
         self.actions.append("bust")
-        self.score = 0
+        self.turn_score = 0
+
+        # New turn
+        self.dice: list[int] = self._get_fresh_dice(Game.NUM_DICE)
+        self.holds: dict[int, int] = self._get_fresh_holds()
 
     def handle_stop(self) -> None:
         self.actions.append("stop")
@@ -185,10 +195,28 @@ class Game:
             dice_from_holds.extend([die for _ in range(hold_count)])
         hold_score += self.calc_score(dice_from_holds)
 
-        self.score += hold_score
+        self.game_score += hold_score
         self.holds = self._get_fresh_holds()
+
+    def handle_fill(self) -> None:
+        self.actions.append("fill")
+        hold_score = 0
+        dice_from_holds: list[int] = []
+        for die, hold_count in self.holds.items():
+            dice_from_holds.extend([die for _ in range(hold_count)])
+        hold_score += self.calc_score(dice_from_holds)
+
+        self.turn_score += hold_score  # TODO: Do I need a separate self.turn_score variable?
+
+        # New turn
+        self.dice: list[int] = self._get_fresh_dice(Game.NUM_DICE)
+        self.holds: dict[int, int] = self._get_fresh_holds()
 
     @property
     def turn_is_over(self) -> bool:
         return self.filled or self.stopped or self.busted
         # return self.busted or self.stopped or self.filled
+
+    @property
+    def game_is_over(self) -> bool:
+        return self.game_score >= self.max_score

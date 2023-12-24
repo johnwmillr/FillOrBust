@@ -38,7 +38,8 @@ class Agent:
             options[pointer] = tuple(map(str, range(dice.count(pointer) + 1)))
 
         if allow_triples:
-            for triple in range(1, Game.NUM_DICE + 1):
+            # for triple in range(1, Game.NUM_DICE + 1):
+            for triple in [2, 3, 4, 6]:
                 count = dice.count(triple)
                 if count >= 3:
                     options[triple] = ("3",)
@@ -75,7 +76,7 @@ class Agent:
         # TODO: validate all of this logic
         options: tuple[ActionT, ...] = ()
         if state["num_dice"] == 0:  # Fill
-            return ("stop",)
+            return ("stop", "roll")
         if (
             sum(state["rolled"].values()) > 0
             and Game.calc_score(self.make_rolled_dice_from_state(state)) == 0
@@ -102,7 +103,7 @@ class Agent:
 
     def play(self) -> None:
         game = Game()  # Empty state for each new episode (i.e. new game)
-        while not game.turn_is_over:
+        while not game.game_is_over:
             action = self.choose_action(game.state)
             if action is None:
                 game.handle_bust()
@@ -118,13 +119,14 @@ class Agent:
         self.total_score += game.state["score"]
         if game.state["score"] > self.best_score:
             self.best_score = game.state["score"]
+        self.num_actions_in_game.append(len(game.actions))
         self.num_games_played += 1
 
     def print_performance(self) -> None:
         scores = sorted(self.scores)
         median = scores[len(scores) // 2]
         print(
-            f"{self.name.title()} Agent average score: {self.total_score // self.num_games_played:7.0f} | Median: {median:4.0f} | Best Score: {self.best_score} | ({len(self.scores)} Games)"
+            f"{self.name.title()} Agent average score: {self.total_score // self.num_games_played:7.0f} | Median: {median:4.0f} | Best Score: {self.best_score} | ({len(self.scores)} Games) ({sum(num for num in self.num_actions_in_game) / self.num_games_played:0.1f} actions/game)"
         )
 
     def __repr__(self) -> str:
@@ -179,7 +181,7 @@ class Smart(Agent):
         t_start = time.time()
         for num_episode in range(num_episodes):
             game = Game()
-            while not game.turn_is_over:
+            while not game.game_is_over:
                 # Determine which action to take based on current state
                 action: ActionT
                 if random.random() < self.Q.epsilon or not self.Q.state_in_table(
@@ -194,27 +196,31 @@ class Smart(Agent):
                 previous_state = game.state
                 if action is None:
                     game.handle_bust()
-                    reward = -10000000000
+                    # reward = -10000000000
                 elif action == "roll":
                     game.handle_roll()
                 elif action.startswith("hold"):
                     game.handle_hold(action)
                 elif action == "stop":
                     game.handle_stop()
-                    reward = game.state["score"] ** 2
+                    reward = game.state["score"]  # ** 2
                 else:
                     raise UnknownActionError(action)
+
+                # Optimize for winning quickly
+                reward = reward / (len(game.actions) ** 2)
 
                 # Update the Q table based on the last action
                 self.Q.update(previous_state, action, game.state, reward)
             self.actions.append(game.actions)
-            self.num_actions_in_game.append(len(game.actions))
 
             # Perform incremental evaluations during training
-            if evaluate and ((num_episode % (num_episodes / 100)) == 0):
-                self.evaluations.append(
-                    (num_episode, *self.evaluate(num_episode=num_episode))
-                )
+            if (num_episode % (num_episodes / 100)) == 0:
+                print(f"{num_episode}/{num_episodes}")
+                if evaluate:
+                    self.evaluations.append(
+                        (num_episode, *self.evaluate(num_episode=num_episode))
+                    )
         elapsed = (time.time() - t_start) / 60
         print(
             f"{self.name.title()} Agent is done training. ({num_episodes} episodes.) ({elapsed:0.1f} minutes)"
@@ -229,8 +235,8 @@ class Smart(Agent):
         for _ in range(num_games):
             agent.play()
 
-        mean = agent.total_score / agent.num_games_played
-        median = sorted(agent.scores)[num_games // 2]
+        mean = sum(num for num in agent.num_actions_in_game) / agent.num_games_played
+        median = sorted(agent.num_actions_in_game)[num_games // 2]
         return mean, median
 
     def plot_evaluations(self) -> None:
@@ -251,7 +257,7 @@ class Smart(Agent):
         ax.plot(x, mean, "k.-", label=params, alpha=0.6)
         ax.plot(x, median, "r.-", label="median", alpha=0.4)
         ax.grid(True, alpha=0.4)
-        ax.set_ylim((0, 750))
+        # ax.set_ylim((0, 750))
         ax.legend()
         plt.show()
 
