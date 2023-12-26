@@ -1,21 +1,25 @@
+from collections import Counter
 from typing import Literal, TypedDict
 
 
 ActionT = Literal[
     None,
-    "bust",
     "roll",
     "stop",
+    "hold",
+    "bust",
     "fill",
 ]
+
+ArrayShape = tuple[int, int]
 
 StateT = TypedDict(
     "StateT",
     {
-        "score": int,
-        "num_dice": int,
-        "rolled": dict[int, int],
-        "held": dict[int, int],
+        "game_score": int,
+        "num_dice_remaining": int,
+        "rolled": Counter[int],
+        "held": Counter[int],
     },
 )
 

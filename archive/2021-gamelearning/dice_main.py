@@ -26,7 +26,7 @@ def main() -> None:
 
     NUM_TRAIN_GAMES = 1_000
     if smart in agents:
-        smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True)
+        smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=False)
 
     # Evaluate the agents
     NUM_TEST_GAMES = 1000
@@ -40,8 +40,8 @@ def main() -> None:
     if smart.evaluations:
         smart.plot_evaluations()
 
-    if NUM_TRAIN_GAMES >= 1_000_000:
-        smart.save(f"./dice/trained_agent_{smart.num_games_played}.pkl")
+    # if NUM_TRAIN_GAMES >= 1_000_000:
+    #     smart.save(f"./dice/trained_agent_{smart.num_games_played}.pkl")
 
 
 if __name__ == "__main__":

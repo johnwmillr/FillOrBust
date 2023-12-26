@@ -1,4 +1,7 @@
+from collections import Counter
 import random
+import numpy as np
+from dice.q import UnknownActionError
 
 from dice.types import ActionT, StateT
 
@@ -6,25 +9,25 @@ from dice.types import ActionT, StateT
 class Game:
     NUM_DICE = 6
     TRIPLE_VALUES = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
+    STRAIGHT_DICE = Counter(range(1, NUM_DICE + 1))
 
     def __init__(self, max_score: int = 10_000) -> None:
         self.turn_score = 0
         self.game_score = 0
-        self.dice: list[int] = self._get_fresh_dice(Game.NUM_DICE)
-        self.holds: dict[int, int] = self._get_fresh_holds()
-        self.actions: list[ActionT] = []
-        self.dice_states: list[list[int]] = []
+        self.dice = self._get_fresh_dice()
+        self.holds = self._get_fresh_holds()  # For the turn
+        self.history: list[ActionT | str] = []
         self.max_score = max_score
 
-    def _get_fresh_dice(self, num_dice: int) -> list[int]:
-        return [-1 for _ in range(num_dice)]
+    def _get_fresh_dice(self) -> Counter[int]:
+        return Counter()
 
-    def _get_fresh_holds(self) -> dict[int, int]:
-        return {n: 0 for n in range(1, Game.NUM_DICE + 1)}
+    def _get_fresh_holds(self) -> Counter[int]:
+        return Counter()
 
     @property
-    def num_dice(self) -> int:
-        return self.NUM_DICE - sum(self.holds.values())
+    def num_dice_remaining(self) -> int:
+        return Game.NUM_DICE - self.holds.total()
 
     @property
     def state(self) -> StateT:
@@ -32,22 +35,20 @@ class Game:
 
     @property
     def stopped(self) -> bool:
-        return self.turn_score > 0 and sum(self.holds.values()) == 0
+        return self.turn_score > 0 and sum(self.holds) == 0
 
     @property
     def busted(self) -> bool:
         # We rolled and got no pointers
-        return (
-            sum(self.state["rolled"].values()) > 0 and self.calc_score(self.dice) == 0
-        )
+        return self.state["rolled"].total() > 0 and self.calc_score(self.dice) == 0
 
     @property
     def filled(self) -> bool:
-        return self.num_dice == 0
+        return self.num_dice_remaining == 0
 
     @property
     def num_ones_rolled(self) -> int:
-        return self.dice.count(1)
+        return np.count_nonzero(self.dice == 1, axis=1)[0]
 
     @property
     def num_ones_held(self) -> int:
@@ -55,7 +56,7 @@ class Game:
 
     @property
     def num_twos_rolled(self) -> int:
-        return self.dice.count(2)
+        return np.count_nonzero(self.dice == 2, axis=1)[0]
 
     @property
     def num_twos_held(self) -> int:
@@ -63,7 +64,7 @@ class Game:
 
     @property
     def num_threes_rolled(self) -> int:
-        return self.dice.count(3)
+        return np.count_nonzero(self.dice == 3, axis=1)[0]
 
     @property
     def num_threes_held(self) -> int:
@@ -71,7 +72,7 @@ class Game:
 
     @property
     def num_fours_rolled(self) -> int:
-        return self.dice.count(4)
+        return np.count_nonzero(self.dice == 4, axis=1)[0]
 
     @property
     def num_fours_held(self) -> int:
@@ -79,7 +80,7 @@ class Game:
 
     @property
     def num_fives_rolled(self) -> int:
-        return self.dice.count(5)
+        return np.count_nonzero(self.dice == 5, axis=1)[0]
 
     @property
     def num_fives_held(self) -> int:
@@ -87,7 +88,7 @@ class Game:
 
     @property
     def num_sixes_rolled(self) -> int:
-        return self.dice.count(6)
+        return np.count_nonzero(self.dice == 6, axis=1)[0]
 
     @property
     def num_sixes_held(self) -> int:
@@ -95,122 +96,93 @@ class Game:
 
     def to_state(self) -> StateT:
         return {
-            "score": self.game_score,
-            "num_dice": self.num_dice,
-            "rolled": {
-                1: self.num_ones_rolled,
-                2: self.num_twos_rolled,
-                3: self.num_threes_rolled,
-                4: self.num_fours_rolled,
-                5: self.num_fives_rolled,
-                6: self.num_sixes_rolled,
-            },
-            "held": {
-                1: self.num_ones_held,
-                2: self.num_twos_held,
-                3: self.num_threes_held,
-                4: self.num_fours_held,
-                5: self.num_fives_held,
-                6: self.num_sixes_held,
-            },
+            "game_score": self.game_score,
+            "num_dice_remaining": self.num_dice_remaining,
+            "rolled": self.dice,
+            "held": self.holds,
         }
 
     def roll_dice(self, num_dice: int) -> None:
-        self.dice = sorted(random.randint(1, 6) for _ in range(num_dice))
-        self.dice_states.append(self.dice)
+        self.dice.clear()
+        self.dice.update(random.randint(1, 6) for _ in range(num_dice))
 
     @classmethod
-    def calc_score(cls, dice: list[int]) -> int:
+    def calc_score(cls, dice: Counter[int]) -> int:
+        assert len(dice), "Can't score empty dice"
+
         # Check for a straight
-        if dice == list(range(1, Game.NUM_DICE + 1)):
+        if dice == Game.STRAIGHT_DICE:
             return 1500
 
         # Check for triples
         score = 0
-        for die in range(1, Game.NUM_DICE + 1):
-            count = dice.count(die)
+        for die, count in dice.items():
             if count == 6:
                 return 2 * Game.TRIPLE_VALUES[die]
             if count >= 3:
                 score += Game.TRIPLE_VALUES[die]
-                for _ in range(3):
-                    dice.remove(die)
+                dice[die] = count - 3
 
         # Check for any single pointers
-        score += 100 * dice.count(1) + 50 * dice.count(5)
+        score += 100 * dice[1] + 50 * dice[5]
         return score
 
+    def handle_action(self, action: ActionT) -> None:
+        self.history.append(action)
+        if action is None:
+            self.handle_bust()
+        elif action == "fill":
+            self.handle_fill()
+        elif action == "roll":
+            self.handle_roll()
+        elif action.startswith("hold"):
+            self.handle_hold(action)  # type: ignore
+        elif action == "stop":
+            self.handle_stop()
+        else:
+            raise UnknownActionError(action)
+
     def handle_roll(self) -> None:
-        self.actions.append("roll")
-        self.roll_dice(self.num_dice)
+        self.roll_dice(self.num_dice_remaining)
         if self.busted:
             self.handle_bust()
 
     def handle_hold(self, hold_action: ActionT) -> None:
-        self.actions.append(hold_action)
         assert hold_action is not None
-        new_holds: dict[int, int] = {}
-        for die, hold_count in enumerate(hold_action.split("_")[-1], start=1):
-            new_holds[die] = int(hold_count)
-
-        assert new_holds[1] <= self.num_ones_rolled, (
-            new_holds[1],
-            self.num_ones_rolled,
-        )
-        assert new_holds[5] <= self.num_fives_rolled, (
-            new_holds[5],
-            self.num_fives_rolled,
-        )
 
         # Add the new held dice from this roll to the turn's held dice
         # Also remove the held dice from `self.dice`
-        # TODO: Removing too many dice here or something
-        for die, hold_count in new_holds.items():
-            assert isinstance(hold_count, int)
-            if hold_count:
-                self.holds[die] += hold_count
-                for _ in range(hold_count):
-                    self.dice.remove(die)
+        for die, hold_count in enumerate(hold_action.split("_")[-1], start=1):
+            if hold_count != "0":
+                self.holds[die] += int(hold_count)
+                self.dice[die] -= int(hold_count)
 
         if self.filled:
-            self.handle_fill()
+            self.handle_action("fill")  # TODO: Filling shouldn't be an action
             return
 
         # Reset dice to indicate that they're ready to be rolled
-        self.dice = self._get_fresh_dice(len(self.dice))
+        self.dice = self._get_fresh_dice()
 
     def handle_bust(self) -> None:
-        self.actions.append("bust")
         self.turn_score = 0
 
         # New turn
-        self.dice: list[int] = self._get_fresh_dice(Game.NUM_DICE)
-        self.holds: dict[int, int] = self._get_fresh_holds()
+        self.dice = self._get_fresh_dice()
+        self.holds = self._get_fresh_holds()
 
     def handle_stop(self) -> None:
-        self.actions.append("stop")
-        hold_score = 0
-        dice_from_holds: list[int] = []
-        for die, hold_count in self.holds.items():
-            dice_from_holds.extend([die for _ in range(hold_count)])
-        hold_score += self.calc_score(dice_from_holds)
-
-        self.game_score += hold_score
+        self.game_score += self.calc_score(self.holds)
         self.holds = self._get_fresh_holds()
 
     def handle_fill(self) -> None:
-        self.actions.append("fill")
-        hold_score = 0
-        dice_from_holds: list[int] = []
-        for die, hold_count in self.holds.items():
-            dice_from_holds.extend([die for _ in range(hold_count)])
-        hold_score += self.calc_score(dice_from_holds)
+        self.turn_score += self.calc_score(
+            self.holds
+        )  # TODO: Do I need a separate self.turn_score variable?
 
-        self.turn_score += hold_score  # TODO: Do I need a separate self.turn_score variable?
-
-        # New turn
-        self.dice: list[int] = self._get_fresh_dice(Game.NUM_DICE)
-        self.holds: dict[int, int] = self._get_fresh_holds()
+        # New dice
+        self.dice = self._get_fresh_dice()
+        self.holds = self._get_fresh_holds()
 
     @property
     def turn_is_over(self) -> bool:

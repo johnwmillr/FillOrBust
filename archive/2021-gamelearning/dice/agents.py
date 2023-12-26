@@ -1,3 +1,4 @@
+from collections import Counter
 from itertools import product
 import pickle
 import random
@@ -8,7 +9,7 @@ from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 
 from dice.game import Game
-from dice.q import QTable, UnknownActionError
+from dice.q import QTable
 from dice.types import ActionT, StateT
 
 
@@ -24,9 +25,7 @@ class Agent:
 
     def determine_hold_options_from_dice(
         self,
-        dice: list[int],
-        allow_triples: bool = False,
-        allow_straights: bool = False,
+        dice: Counter[int],
     ) -> tuple[ActionT, ...]:
         # TODO: Explain what `options` is
         options: dict[int, tuple[str, ...]] = {
@@ -35,16 +34,15 @@ class Agent:
 
         # TODO: Make sure we're covering all possible hold options
         for pointer in [1, 5]:
-            options[pointer] = tuple(map(str, range(dice.count(pointer) + 1)))
+            options[pointer] = tuple(map(str, range(dice[pointer] + 1)))
 
-        if allow_triples:
-            # for triple in range(1, Game.NUM_DICE + 1):
-            for triple in [2, 3, 4, 6]:
-                count = dice.count(triple)
-                if count >= 3:
-                    options[triple] = ("3",)
-                    if count == 6:
-                        options[triple] += ("6",)
+        # for triple in range(1, Game.NUM_DICE + 1):
+        for triple in [2, 3, 4, 6]:
+            count = dice[triple]
+            if count >= 3:
+                options[triple] = ("3",)
+                if count == 6:
+                    options[triple] += ("6",)
 
         holds = map(
             lambda x: cast(ActionT, "hold_" + "".join(x)), product(*options.values())
@@ -54,11 +52,10 @@ class Agent:
             for item in holds
             if not str(item).endswith("0" * Game.NUM_DICE)
         )
-        if allow_straights:
-            # Check for a straight
-            # TODO: this should be done above
-            if dice == list(range(1, Game.NUM_DICE + 1)):
-                holds += ("hold_111111",)
+        # Check for a straight
+        # TODO: this should be done above
+        if dice == Game.STRAIGHT_DICE:
+            holds += ("hold_111111",)
 
         # Check that all holds are valid
         for hold in holds:
@@ -66,36 +63,27 @@ class Agent:
 
         return holds  # type: ignore
 
-    def make_rolled_dice_from_state(self, state: StateT) -> list[int]:
-        dice: list[int] = []
-        for die, value in state["rolled"].items():
-            dice.extend([die for _ in range(value)])
-        return dice
+    def make_rolled_dice_from_state(self, state: StateT) -> Counter[int]:
+        return state["rolled"]
 
     def determine_available_actions(self, state: StateT) -> tuple[ActionT, ...]:
         # TODO: validate all of this logic
         options: tuple[ActionT, ...] = ()
-        if state["num_dice"] == 0:  # Fill
+        if state["num_dice_remaining"] == 0 and state["held"].total() > 0:  # Fill
             return ("stop", "roll")
         if (
-            sum(state["rolled"].values()) > 0
-            and Game.calc_score(self.make_rolled_dice_from_state(state)) == 0
+            state["rolled"].total() > 0 and Game.calc_score(state["rolled"]) == 0
         ):  # Bust
             return (None,)
-        if sum(state["rolled"].values()) == 0:  # Unrolled dice
+        if state["rolled"].total() == 0:  # Unrolled dice
             options = ("roll",)
-            if any(state["held"].values()):
+            if state["held"].total() > 0:
                 options += ("stop",)
             return options
 
         # Check whether it's time to hold dice
-        if any(state["rolled"].values()):
-            hold_options = self.determine_hold_options_from_dice(
-                self.make_rolled_dice_from_state(state),
-                allow_triples=True,
-                allow_straights=True,
-            )
-            return hold_options
+        if state["rolled"].total() > 0:
+            return self.determine_hold_options_from_dice(state["rolled"])
         raise Exception(f"Unhandled state: {state=}")
 
     def choose_action(self, state: StateT) -> ActionT:
@@ -105,21 +93,12 @@ class Agent:
         game = Game()  # Empty state for each new episode (i.e. new game)
         while not game.game_is_over:
             action = self.choose_action(game.state)
-            if action is None:
-                game.handle_bust()
-            elif action == "roll":
-                game.handle_roll()
-            elif action.startswith("hold"):
-                game.handle_hold(action)
-            elif action == "stop":
-                game.handle_stop()
-            else:
-                raise UnknownActionError(action)
-        self.scores.append(game.state["score"])
-        self.total_score += game.state["score"]
-        if game.state["score"] > self.best_score:
-            self.best_score = game.state["score"]
-        self.num_actions_in_game.append(len(game.actions))
+            game.handle_action(action)
+        self.scores.append(game.state["game_score"])
+        self.total_score += game.state["game_score"]
+        if game.state["game_score"] > self.best_score:
+            self.best_score = game.state["game_score"]
+        self.num_actions_in_game.append(len(game.history))
         self.num_games_played += 1
 
     def print_performance(self) -> None:
@@ -137,7 +116,7 @@ class RiskyAgent(Agent):
     def choose_action(self, state: StateT) -> ActionT:
         possible_actions = self.determine_available_actions(state)
         if "roll" in possible_actions:
-            if state["num_dice"] > 1:
+            if state["num_dice_remaining"] > 1:
                 return "roll"
         return super().choose_action(state)
 
@@ -149,7 +128,10 @@ class StopAtNDice(Agent):
 
     def choose_action(self, state: StateT) -> ActionT:
         possible_actions = self.determine_available_actions(state)
-        if "stop" in possible_actions and state["num_dice"] <= self.num_dice_to_stop_at:
+        if (
+            "stop" in possible_actions
+            and state["num_dice_remaining"] <= self.num_dice_to_stop_at
+        ):
             return "stop"
 
         possible_actions = [action for action in possible_actions if action != "stop"]
@@ -192,27 +174,17 @@ class Smart(Agent):
                     action = self.choose_action(game.state)  # Exploit
 
                 # Perform the selected action
-                reward = 0  # TODO: why doesn't manipulating the reward have more of an affect on performance?
                 previous_state = game.state
-                if action is None:
-                    game.handle_bust()
-                    # reward = -10000000000
-                elif action == "roll":
-                    game.handle_roll()
-                elif action.startswith("hold"):
-                    game.handle_hold(action)
-                elif action == "stop":
-                    game.handle_stop()
-                    reward = game.state["score"]  # ** 2
+                game.handle_action(action)
+                if game.game_is_over:
+                    # Optimize for winning quickly
+                    reward = 1000 / len(game.history)
                 else:
-                    raise UnknownActionError(action)
-
-                # Optimize for winning quickly
-                reward = reward / (len(game.actions) ** 2)
+                    reward = 0
 
                 # Update the Q table based on the last action
                 self.Q.update(previous_state, action, game.state, reward)
-            self.actions.append(game.actions)
+            self.actions.append(game.history)
 
             # Perform incremental evaluations during training
             if (num_episode % (num_episodes / 100)) == 0:

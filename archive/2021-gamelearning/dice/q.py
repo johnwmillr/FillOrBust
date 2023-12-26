@@ -58,15 +58,9 @@ class QTable:
         return {"roll": 0, "stop": 0}
 
     def state_to_Q_table_keys(self, state: StateT) -> tuple[str, ...]:
-        NUM_DICE = 6
-
-        score_key = "score_" + str(state["score"])
-        roll_key = "roll_count_" + "".join(
-            str(state["rolled"][n]) for n in range(1, NUM_DICE + 1)
-        )
-        hold_key = "hold_count_" + "".join(
-            str(state["held"][n]) for n in range(1, NUM_DICE + 1)
-        )
+        score_key = "score_" + str(state["game_score"])
+        roll_key = "roll_count_" + str(state["rolled"])
+        hold_key = "hold_count_" + str(state["held"])
         return (score_key, roll_key, hold_key)
 
     def state_in_table(self, state: StateT) -> bool:
@@ -84,7 +78,7 @@ class QTable:
         return self.table[roll_key][hold_key]
 
     def assign_value_to_state_and_action(
-        self, state: StateT, action: ActionT, value: float, overwrite: bool = True
+        self, state: StateT, action: ActionT, value: float = 0.0, overwrite: bool = True
     ) -> None:
         score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
 
@@ -122,8 +116,8 @@ class QTable:
         # assert action in self.empty_actions, UnknownActionError(action)
 
         # Check if we have reward values for `state` and `new_state`
-        self.assign_value_to_state_and_action(current_state, action, 0.0, overwrite=False)
-        # self.assign_value_to_state_and_action(new_state, action, 0.0, overwrite=False)
+        self.assign_value_to_state_and_action(current_state, action, overwrite=False)
+
 
         # Calculate the new Q-value for this action/state combo
         current_q_value = self.get_Q_values_for_state(current_state)[action]
