@@ -10,8 +10,8 @@ def main() -> None:
     smart = Smart(
         "smart",
         Q=QTable(
-            learning_rate=0.5,
-            discount_factor=0.95,
+            learning_rate=0.3,
+            discount_factor=0.7,
             epsilon=0.7,
         ),
     )
@@ -24,18 +24,22 @@ def main() -> None:
         # StopAtNDice("stop3", num_dice_to_stop_at=3),
     ]
 
-    NUM_TRAIN_GAMES = 20_000
+    NUM_TRAIN_GAMES = 40_000
     if smart in agents:
-        smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True, verbose=False)
+        smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True, verbose=True)
         print(f"{len(smart.Q.table)=}")
 
     # smart.play(verbose=True)
 
     # Evaluate the agents
-    NUM_TEST_GAMES = 10_000
+    NUM_TEST_GAMES = 1_000
     for agent in agents:
         for n in range(NUM_TEST_GAMES):
             agent.play()
+
+    # import pandas as pd
+    # ax = pd.Series(smart.scores).plot.hist(bins=25, alpha=0.5, color="r")
+    # pd.Series(agents[1].scores).plot.hist(bins=25, ax=ax, color="k", alpha=0.5)
 
     for agent in agents:
         agent.print_performance()

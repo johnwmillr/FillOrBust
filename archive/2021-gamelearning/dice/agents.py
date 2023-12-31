@@ -23,6 +23,7 @@ class Agent:
         self.num_games_played = 0
         self.actions = []
         self.num_actions_in_game: list[int] = []
+        self.num_turns_in_game: list[int] = []
 
     def determine_hold_options_from_dice(
         self,
@@ -89,25 +90,26 @@ class Agent:
         game = Game()  # Empty state for each new episode (i.e. new game)
         if verbose:
             print("Starting Game!")
-        while not game.turn_is_over:
+        while not game.game_is_over:
             action = self.choose_action(game.state)
             if verbose:
                 print(f"Game State: {game.state}")
                 print(f"Possible Actions: {self.determine_available_actions(game.state)}")
                 print(f"Selected Action:  {action}")
             game.handle_action(action)
-        self.scores.append(game.state["turn_score"])
-        self.total_score += game.state["turn_score"]
-        if game.state["turn_score"] > self.best_score:
-            self.best_score = game.state["turn_score"]
+        self.scores.append(game.state["banked_score"])
+        self.total_score += game.state["banked_score"]
+        if game.state["banked_score"] > self.best_score:
+            self.best_score = game.state["banked_score"]
         self.num_actions_in_game.append(len(game.history))
+        self.num_turns_in_game.append(game.num_turns)
         self.num_games_played += 1
 
     def print_performance(self) -> None:
         scores = sorted(self.scores)
         median = scores[len(scores) // 2]
         print(
-            f"{self.name.title()} Agent average score: {self.total_score // self.num_games_played:7.0f} | Median: {median:4.0f} | Best Score: {self.best_score} | ({len(self.scores)} Games) ({sum(num for num in self.num_actions_in_game) / self.num_games_played:0.1f} actions/game)"
+            f"{self.name.title()} Agent average score: {self.total_score // self.num_games_played:7.0f} | Median: {median:4.0f} | Best Score: {self.best_score} | ({len(self.scores)} Games) ({sum(num for num in self.num_turns_in_game) / self.num_games_played:0.1f} turns/game)"
         )
 
     def __repr__(self) -> str:
@@ -167,7 +169,7 @@ class Smart(Agent):
         t_start = time.time()
         for num_episode in range(num_episodes):
             game = Game()
-            while not game.turn_is_over:
+            while not game.game_is_over:
                 # Determine which action to take based on current state
                 action: ActionT
                 if random.random() < self.Q.epsilon or not self.Q.state_in_table(
@@ -180,19 +182,20 @@ class Smart(Agent):
                 # Perform the selected action
                 previous_state = deepcopy(game.state)
                 game.handle_action(action)
-                reward = game.turn_score if game.turn_is_over else 0
+                # reward = game.turn_score if game.turn_is_over else 0
+                reward = (400 / game.num_turns ** 2) if game.game_is_over else 0
 
                 # Update the Q table based on the last action
                 self.Q.update(previous_state, action, deepcopy(game.state), reward)
             self.actions.append(game.history)
 
             # Perform incremental evaluations during training
-            if (num_episode % (num_episodes / 100)) == 0:
+            if (num_episode % (num_episodes / 25)) == 0:
                 if verbose:
                     print(f"{num_episode}/{num_episodes}")
                 if evaluate:
                     self.evaluations.append(
-                        (num_episode, *self.evaluate(num_episode=num_episode))
+                        (num_episode, *self.evaluate(optimize_for_score=False, num_episode=num_episode))
                     )
         elapsed = (time.time() - t_start) / 60
         print(
@@ -201,7 +204,7 @@ class Smart(Agent):
 
     def evaluate(
         self,
-        num_games: int = 50,
+        num_games: int = 25,
         num_episode: int | None = None,
         optimize_for_score: bool = True,
     ) -> tuple[float, int]:
@@ -214,9 +217,9 @@ class Smart(Agent):
             median = sorted(agent.scores)[agent.num_games_played // 2]
         else:
             mean = (
-                sum(num for num in agent.num_actions_in_game) / agent.num_games_played
+                sum(num for num in agent.num_turns_in_game) / agent.num_games_played
             )
-            median = sorted(agent.num_actions_in_game)[num_games // 2]
+            median = sorted(agent.num_turns_in_game)[num_games // 2]
         return mean, median
 
     def plot_evaluations(self) -> None:
@@ -237,7 +240,7 @@ class Smart(Agent):
         ax.plot(x, mean, "k.-", label=params, alpha=0.6)
         ax.plot(x, median, "r.-", label="median", alpha=0.4)
         ax.grid(True, alpha=0.4)
-        # ax.set_ylim((0, 750))
+        # ax.set_ylabel("Turn Score")
         ax.legend()
         plt.show()
 
