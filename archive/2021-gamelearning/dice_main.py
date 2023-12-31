@@ -10,28 +10,31 @@ def main() -> None:
     smart = Smart(
         "smart",
         Q=QTable(
-            learning_rate=0.8,
-            discount_factor=0.9,
-            epsilon=0.9,
+            learning_rate=0.5,
+            discount_factor=0.95,
+            epsilon=0.7,
         ),
     )
 
     agents: list[Agent] = [
         smart,
-        Agent("dumb "),
+        # Agent("dumb "),
         # RiskyAgent("risky"),
         StopAtNDice("stop2", num_dice_to_stop_at=2),
         # StopAtNDice("stop3", num_dice_to_stop_at=3),
     ]
 
-    NUM_TRAIN_GAMES = 1_000
+    NUM_TRAIN_GAMES = 30_000
     if smart in agents:
-        smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=False)
+        smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True, verbose=False)
+        print(f"{len(smart.Q.table)=}")
+
+    # smart.play(verbose=True)
 
     # Evaluate the agents
-    NUM_TEST_GAMES = 1000
+    NUM_TEST_GAMES = 10_000
     for agent in agents:
-        for _ in range(NUM_TEST_GAMES):
+        for n in range(NUM_TEST_GAMES):
             agent.play()
 
     for agent in agents:

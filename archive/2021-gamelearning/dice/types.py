@@ -3,12 +3,9 @@ from typing import Literal, TypedDict
 
 
 ActionT = Literal[
-    None,
     "roll",
     "stop",
     "hold",
-    "bust",
-    "fill",
 ]
 
 ArrayShape = tuple[int, int]
@@ -16,11 +13,10 @@ ArrayShape = tuple[int, int]
 StateT = TypedDict(
     "StateT",
     {
-        "game_score": int,
-        "num_dice_remaining": int,
+        "turn_score": int,
         "rolled": Counter[int],
         "held": Counter[int],
     },
 )
 
-QTableT = dict[str, dict[str, dict[ActionT, float]]]
+QTableT = dict[tuple[str, str, str], dict[ActionT, float]]

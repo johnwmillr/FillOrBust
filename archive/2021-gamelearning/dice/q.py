@@ -53,43 +53,26 @@ class QTable:
             f"<QTable: {self.learning_rate=}, {self.discount_factor=}, {self.epsilon=}>"
         )
 
-    @property
-    def empty_actions(self) -> dict[ActionT, float]:
-        return {"roll": 0, "stop": 0}
-
-    def state_to_Q_table_keys(self, state: StateT) -> tuple[str, ...]:
-        score_key = "score_" + str(state["game_score"])
+    def state_to_Q_table_key(self, state: StateT) -> tuple[str, str, str]:
+        score_key = "score_" + str(state["turn_score"])
         roll_key = "roll_count_" + str(state["rolled"])
         hold_key = "hold_count_" + str(state["held"])
         return (score_key, roll_key, hold_key)
 
     def state_in_table(self, state: StateT) -> bool:
-        score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
-        # if score_key in self.table:
-        if roll_key in self.table:
-            if hold_key in self.table[roll_key]:
-                return True
-        return False
+        return self.state_to_Q_table_key(state) in self.table
 
     def get_Q_values_for_state(self, state: StateT) -> dict[ActionT, float]:
-        if not self.state_in_table(state):
-            return {}
-        score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
-        return self.table[roll_key][hold_key]
+        return self.table.get(self.state_to_Q_table_key(state), {})
 
     def assign_value_to_state_and_action(
         self, state: StateT, action: ActionT, value: float = 0.0, overwrite: bool = True
     ) -> None:
-        score_key, roll_key, hold_key = self.state_to_Q_table_keys(state)
-
-        # if score_key not in self.table:
-        #     self.table[score_key] = {}
-        if roll_key not in self.table:
-            self.table[roll_key] = {}
-        if hold_key not in self.table[roll_key]:
-            self.table[roll_key][hold_key] = {}
-        if overwrite or (action not in self.table[roll_key][hold_key]):
-            self.table[roll_key][hold_key][action] = value
+        key = self.state_to_Q_table_key(state)
+        if key not in self.table:
+            self.table[key] = {}
+        if overwrite or (action not in self.table[key]):
+            self.table[key][action] = value
 
     def update(
         self, current_state: StateT, action: ActionT, new_state: StateT, reward: float
@@ -113,14 +96,7 @@ class QTable:
             Q-learning update equation to adjust the Q-value toward the optimal
             value.
         """
-        # assert action in self.empty_actions, UnknownActionError(action)
-
-        # Check if we have reward values for `state` and `new_state`
-        self.assign_value_to_state_and_action(current_state, action, overwrite=False)
-
-
-        # Calculate the new Q-value for this action/state combo
-        current_q_value = self.get_Q_values_for_state(current_state)[action]
+        current_q_value = self.get_Q_values_for_state(current_state).get(action, 0.0)
         max_next_q_value = max(
             self.get_Q_values_for_state(new_state).values(), default=0
         )

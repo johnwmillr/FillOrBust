@@ -1,8 +1,8 @@
 from collections import Counter
+from copy import deepcopy
 import random
-import numpy as np
-from dice.q import UnknownActionError
 
+from dice.q import UnknownActionError
 from dice.types import ActionT, StateT
 
 
@@ -13,17 +13,12 @@ class Game:
 
     def __init__(self, max_score: int = 10_000) -> None:
         self.turn_score = 0
-        self.game_score = 0
-        self.dice = self._get_fresh_dice()
-        self.holds = self._get_fresh_holds()  # For the turn
-        self.history: list[ActionT | str] = []
+        self.banked_score = 0
+        self.dice: Counter[int] = Counter()
+        self.holds: Counter[int] = Counter()
+        self.history: list[ActionT | str] = ["start"]
         self.max_score = max_score
-
-    def _get_fresh_dice(self) -> Counter[int]:
-        return Counter()
-
-    def _get_fresh_holds(self) -> Counter[int]:
-        return Counter()
+        self.states: list[StateT] = [deepcopy(self.state)]
 
     @property
     def num_dice_remaining(self) -> int:
@@ -33,82 +28,17 @@ class Game:
     def state(self) -> StateT:
         return self.to_state()
 
-    @property
-    def stopped(self) -> bool:
-        return self.turn_score > 0 and sum(self.holds) == 0
-
-    @property
-    def busted(self) -> bool:
-        # We rolled and got no pointers
-        return self.state["rolled"].total() > 0 and self.calc_score(self.dice) == 0
-
-    @property
-    def filled(self) -> bool:
-        return self.num_dice_remaining == 0
-
-    @property
-    def num_ones_rolled(self) -> int:
-        return np.count_nonzero(self.dice == 1, axis=1)[0]
-
-    @property
-    def num_ones_held(self) -> int:
-        return self.holds[1]
-
-    @property
-    def num_twos_rolled(self) -> int:
-        return np.count_nonzero(self.dice == 2, axis=1)[0]
-
-    @property
-    def num_twos_held(self) -> int:
-        return self.holds[2]
-
-    @property
-    def num_threes_rolled(self) -> int:
-        return np.count_nonzero(self.dice == 3, axis=1)[0]
-
-    @property
-    def num_threes_held(self) -> int:
-        return self.holds[3]
-
-    @property
-    def num_fours_rolled(self) -> int:
-        return np.count_nonzero(self.dice == 4, axis=1)[0]
-
-    @property
-    def num_fours_held(self) -> int:
-        return self.holds[4]
-
-    @property
-    def num_fives_rolled(self) -> int:
-        return np.count_nonzero(self.dice == 5, axis=1)[0]
-
-    @property
-    def num_fives_held(self) -> int:
-        return self.holds[5]
-
-    @property
-    def num_sixes_rolled(self) -> int:
-        return np.count_nonzero(self.dice == 6, axis=1)[0]
-
-    @property
-    def num_sixes_held(self) -> int:
-        return self.holds[6]
-
     def to_state(self) -> StateT:
         return {
-            "game_score": self.game_score,
-            "num_dice_remaining": self.num_dice_remaining,
+            "turn_score": self.turn_score,
             "rolled": self.dice,
             "held": self.holds,
         }
 
-    def roll_dice(self, num_dice: int) -> None:
-        self.dice.clear()
-        self.dice.update(random.randint(1, 6) for _ in range(num_dice))
-
     @classmethod
     def calc_score(cls, dice: Counter[int]) -> int:
         assert len(dice), "Can't score empty dice"
+        dice = deepcopy(dice)
 
         # Check for a straight
         if dice == Game.STRAIGHT_DICE:
@@ -128,12 +58,7 @@ class Game:
         return score
 
     def handle_action(self, action: ActionT) -> None:
-        self.history.append(action)
-        if action is None:
-            self.handle_bust()
-        elif action == "fill":
-            self.handle_fill()
-        elif action == "roll":
+        if action == "roll":
             self.handle_roll()
         elif action.startswith("hold"):
             self.handle_hold(action)  # type: ignore
@@ -141,9 +66,14 @@ class Game:
             self.handle_stop()
         else:
             raise UnknownActionError(action)
+        self.history.append(action)
+        self.states.append(deepcopy(self.state))
+
+    def roll_dice(self, num_dice: int) -> Counter[int]:
+        return Counter(random.randint(1, 6) for _ in range(num_dice))
 
     def handle_roll(self) -> None:
-        self.roll_dice(self.num_dice_remaining)
+        self.dice = self.roll_dice(self.num_dice_remaining)
         if self.busted:
             self.handle_bust()
 
@@ -155,40 +85,40 @@ class Game:
         for die, hold_count in enumerate(hold_action.split("_")[-1], start=1):
             if hold_count != "0":
                 self.holds[die] += int(hold_count)
-                self.dice[die] -= int(hold_count)
 
-        if self.filled:
-            self.handle_action("fill")  # TODO: Filling shouldn't be an action
-            return
-
-        # Reset dice to indicate that they're ready to be rolled
-        self.dice = self._get_fresh_dice()
-
-    def handle_bust(self) -> None:
-        self.turn_score = 0
-
-        # New turn
-        self.dice = self._get_fresh_dice()
-        self.holds = self._get_fresh_holds()
+        if self.holds.total() == self.NUM_DICE:
+            self.handle_fill()
+        self.dice = Counter()  # Reset dice to indicate we're ready to roll again
 
     def handle_stop(self) -> None:
-        self.game_score += self.calc_score(self.holds)
-        self.holds = self._get_fresh_holds()
+        self.turn_score += self.calc_score(self.holds)
+        self.banked_score += self.turn_score
+
+    @property
+    def stopped(self) -> bool:
+        return self.banked_score > 0
+
+    def handle_bust(self) -> None:
+        self.history.append("bust")
+        self.turn_score = 0
+
+    @property
+    def busted(self) -> bool:
+        return self.state["rolled"].total() > 0 and self._no_pointers_on_dice(self.dice)
+
+    def _no_pointers_on_dice(self, dice: Counter[int]) -> bool:
+        return (dice[1] + dice[5]) == 0 and max(dice.values()) < 3
 
     def handle_fill(self) -> None:
-        self.turn_score += self.calc_score(
-            self.holds
-        )  # TODO: Do I need a separate self.turn_score variable?
-
-        # New dice
-        self.dice = self._get_fresh_dice()
-        self.holds = self._get_fresh_holds()
+        self.history.append("fill")
+        self.turn_score += self.calc_score(self.holds)
+        self.dice = Counter()
+        self.holds = Counter()
 
     @property
     def turn_is_over(self) -> bool:
-        return self.filled or self.stopped or self.busted
-        # return self.busted or self.stopped or self.filled
+        return self.stopped or self.busted
 
     @property
     def game_is_over(self) -> bool:
-        return self.game_score >= self.max_score
+        return self.banked_score >= self.max_score
