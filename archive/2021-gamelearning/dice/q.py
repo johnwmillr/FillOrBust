@@ -58,7 +58,7 @@ class QTable:
         turn_score_key = "turn_score_" + str(state["turn_score"])
         roll_key = "roll_count_" + str(sorted(state["rolled"].elements()))
         hold_key = "hold_count_" + str(sorted(state["held"].elements()))
-        return (turn_score_key, roll_key, hold_key)
+        return (banked_score_key, turn_score_key, roll_key, hold_key)
 
     def state_in_table(self, state: StateT) -> bool:
         return self.state_to_Q_table_key(state) in self.table

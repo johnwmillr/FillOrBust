@@ -1,4 +1,6 @@
+import time
 import cProfile
+import pickle
 from dice.agents import Agent, Smart, StopAtNDice
 from dice.q import QTable
 
@@ -10,29 +12,32 @@ def main() -> None:
     smart = Smart(
         "smart",
         Q=QTable(
-            learning_rate=0.3,
-            discount_factor=0.7,
-            epsilon=0.7,
+            learning_rate=0.95,
+            discount_factor=0.8,
+            epsilon=0.8,
         ),
     )
 
+    # fn = "./dice/trained_agent_1704061320_398000.pkl"
+    # fn = "./dice/trained_agent_1704062710_598000.pkl"
+    # with open(fn, "rb") as fin:
+    #     smart: Smart = pickle.load(fin)
+    # smart.Q.learning_rate = 0.3
+
     agents: list[Agent] = [
         smart,
-        # Agent("dumb "),
+        Agent("dumb "),
         # RiskyAgent("risky"),
         StopAtNDice("stop2", num_dice_to_stop_at=2),
         # StopAtNDice("stop3", num_dice_to_stop_at=3),
     ]
 
-    NUM_TRAIN_GAMES = 40_000
+    NUM_TRAIN_GAMES = 10_000
     if smart in agents:
         smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True, verbose=True)
-        print(f"{len(smart.Q.table)=}")
-
-    # smart.play(verbose=True)
 
     # Evaluate the agents
-    NUM_TEST_GAMES = 1_000
+    NUM_TEST_GAMES = 10_000
     for agent in agents:
         for n in range(NUM_TEST_GAMES):
             agent.play()
@@ -47,8 +52,8 @@ def main() -> None:
     if smart.evaluations:
         smart.plot_evaluations()
 
-    # if NUM_TRAIN_GAMES >= 1_000_000:
-    #     smart.save(f"./dice/trained_agent_{smart.num_games_played}.pkl")
+    # if NUM_TRAIN_GAMES >= 100_000:
+    smart.save(f"./dice/trained_agent_{int(time.time())}_{smart.evaluations[-1][0]}.pkl")
 
 
 if __name__ == "__main__":
