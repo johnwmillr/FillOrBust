@@ -11,18 +11,20 @@ class Game:
     TRIPLE_VALUES = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
     STRAIGHT_DICE = Counter(range(1, NUM_DICE + 1))
 
-    def __init__(self, max_score: int = 5_000) -> None:
+    def __init__(self, max_score: int | None) -> None:
         self.turn_score = 0
+        self.turn_scores = []
         self.banked_score = 0
         self.num_turns = 0
         self.dice: Counter[int] = Counter()
         self.holds: Counter[int] = Counter()
         self.history: list[ActionT | str] = ["start"]
-        self.max_score = max_score
+        self.max_score = max_score if max_score else 5_000
         self.states: list[StateT] = [deepcopy(self.state)]
         self._start_new_turn()
 
     def _start_new_turn(self) -> None:
+        self.history.append(f"NEW TURN, Score: {self.banked_score}")
         self.num_turns += 1
         self.turn_score = 0
         self.dice = Counter()
@@ -89,8 +91,11 @@ class Game:
             self.handle_stop()
         else:
             raise UnknownActionError(action)
-        self.history.append(action)
-        # self.states.append(deepcopy(self.state))
+        if action == "roll":
+            dice = "".join(sorted(str(val) for die, count in self.dice.items() for val in [die] * count))
+            self.history.append(f"{action}: {dice} ({len(dice)} dice)")
+        else:
+            self.history.append(action)
 
     def handle_roll(self) -> None:
         self.dice = self.roll_dice(self.num_dice_remaining)
@@ -106,13 +111,18 @@ class Game:
             if hold_count != "0":
                 self.holds[die] += int(hold_count)
 
+        # Compute the incremental turn score (to deal with triples same roll requirement)
+        # TODO: Just store the holds incrementally, don't calc the score each time
+        holds = Counter({die: int(count) for die, count in enumerate(hold_action.split("_")[-1], start=1)})
+        self.turn_score += self.calc_score(holds)  # type:ignore
+
         if self.holds.total() == self.NUM_DICE:
             self.handle_fill()
         self.dice = Counter()  # Reset dice to indicate we're ready to roll again
 
     def handle_stop(self) -> None:
-        self.turn_score += self.calc_score(self.holds)
         self.banked_score += self.turn_score
+        self.turn_scores.append(self.turn_score)
         self._start_new_turn()
 
     def handle_bust(self) -> None:
@@ -122,7 +132,6 @@ class Game:
 
     def handle_fill(self) -> None:
         self.history.append("fill")
-        self.turn_score += self.calc_score(self.holds)
         self.dice = Counter()
         self.holds = Counter()
 
