@@ -223,8 +223,7 @@ class Smart(Agent):
                 # Perform the selected action
                 previous_state = deepcopy(game.state)
                 game.handle_action(action)
-                # reward = 1_000 / game.num_turns**3 if game.game_is_over else 0
-                reward = 1 / game.num_turns if game.game_is_over else 0
+                reward = 1000 / game.num_turns if game.game_is_over else 0
 
                 # Update the Q table based on the last action
                 self.Q.update(previous_state, action, deepcopy(game.state), reward)

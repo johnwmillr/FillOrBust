@@ -1,7 +1,4 @@
-from copy import deepcopy
 import time
-import cProfile
-import pickle
 from dice.agents import Agent, Smart, StopAtNDice
 from dice.q import QTable
 
@@ -13,12 +10,12 @@ def main() -> None:
     smart = Smart(
         "smart",
         Q=QTable(
-            learning_rate=0.3,
-            discount_factor=0.7,
+            learning_rate=0.2,
+            discount_factor=0.65,
             epsilon=0.8,
         ),
         learning_rate_decay=0.9,
-        discount_factor_decay=1,
+        discount_factor_decay=1.05,
     )
 
     agents: list[Agent] = [
@@ -26,20 +23,20 @@ def main() -> None:
         # Agent("dumb "),
         # RiskyAgent("risky"),
         StopAtNDice("stop2", num_dice_to_stop_at=2),
-        # StopAtNDice("stop3", num_dice_to_stop_at=3),
+        StopAtNDice("stop3", num_dice_to_stop_at=3),
     ]
 
-    NUM_TRAIN_GAMES = 5000
+    NUM_TRAIN_GAMES = 10000
     if smart in agents:
         smart.train(
-            num_episodes=NUM_TRAIN_GAMES, max_score=5_000, evaluate=True, verbose=True
+            num_episodes=NUM_TRAIN_GAMES, max_score=10_000, evaluate=True, verbose=True
         )
 
     # Evaluate the agents
     NUM_TEST_GAMES = 1_000
     for agent in agents:
         if isinstance(agent, Smart):
-            agent = Smart(f"{NUM_TRAIN_GAMES=}", Q=smart.Q)
+            agent = Smart("Smart", Q=smart.Q)
         for _ in range(NUM_TEST_GAMES):
             agent.play(max_score=10_000)
         agent.print_performance()
