@@ -1,3 +1,4 @@
+from copy import deepcopy
 import time
 import cProfile
 import pickle
@@ -12,48 +13,42 @@ def main() -> None:
     smart = Smart(
         "smart",
         Q=QTable(
-            learning_rate=0.95,
-            discount_factor=0.8,
+            learning_rate=0.3,
+            discount_factor=0.7,
             epsilon=0.8,
         ),
+        learning_rate_decay=0.9,
+        discount_factor_decay=1,
     )
-
-    # fn = "./dice/trained_agent_1704061320_398000.pkl"
-    # fn = "./dice/trained_agent_1704062710_598000.pkl"
-    # with open(fn, "rb") as fin:
-    #     smart: Smart = pickle.load(fin)
-    # smart.Q.learning_rate = 0.3
 
     agents: list[Agent] = [
         smart,
-        Agent("dumb "),
+        # Agent("dumb "),
         # RiskyAgent("risky"),
         StopAtNDice("stop2", num_dice_to_stop_at=2),
         # StopAtNDice("stop3", num_dice_to_stop_at=3),
     ]
 
-    NUM_TRAIN_GAMES = 10_000
+    NUM_TRAIN_GAMES = 5000
     if smart in agents:
-        smart.train(num_episodes=NUM_TRAIN_GAMES, evaluate=True, verbose=True)
+        smart.train(
+            num_episodes=NUM_TRAIN_GAMES, max_score=5_000, evaluate=True, verbose=True
+        )
 
     # Evaluate the agents
-    NUM_TEST_GAMES = 10_000
+    NUM_TEST_GAMES = 1_000
     for agent in agents:
-        for n in range(NUM_TEST_GAMES):
-            agent.play()
-
-    # import pandas as pd
-    # ax = pd.Series(smart.scores).plot.hist(bins=25, alpha=0.5, color="r")
-    # pd.Series(agents[1].scores).plot.hist(bins=25, ax=ax, color="k", alpha=0.5)
-
-    for agent in agents:
+        if isinstance(agent, Smart):
+            agent = Smart(f"{NUM_TRAIN_GAMES=}", Q=smart.Q)
+        for _ in range(NUM_TEST_GAMES):
+            agent.play(max_score=10_000)
         agent.print_performance()
 
     if smart.evaluations:
         smart.plot_evaluations()
 
-    # if NUM_TRAIN_GAMES >= 100_000:
-    smart.save(f"./dice/trained_agent_{int(time.time())}_{smart.evaluations[-1][0]}.pkl")
+    if NUM_TRAIN_GAMES >= 25_000:
+        smart.save(f"./dice/trained_agent_{int(time.time())}_{NUM_TRAIN_GAMES}.pkl")
 
 
 if __name__ == "__main__":
