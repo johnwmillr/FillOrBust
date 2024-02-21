@@ -2,6 +2,7 @@ from collections import Counter
 from copy import deepcopy
 import random
 
+from dice.cards import Card, Deck
 from dice.q import UnknownActionError
 from dice.types import ActionT, StateT
 
@@ -11,13 +12,15 @@ class Game:
     TRIPLE_VALUES = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
     STRAIGHT_DICE = Counter(range(1, NUM_DICE + 1))
 
-    def __init__(self, max_score: int | None) -> None:
+    def __init__(self, max_score: int | None = None) -> None:
         self.turn_score = 0
         self.turn_scores = []
         self.banked_score = 0
         self.num_turns = 0
         self.dice: Counter[int] = Counter()
         self.holds: Counter[int] = Counter()
+        self.deck = Deck()
+        self.card: Card | None = None
         self.history: list[ActionT | str] = ["start"]
         self.max_score = max_score if max_score else 5_000
         self.states: list[StateT] = [deepcopy(self.state)]
@@ -29,6 +32,7 @@ class Game:
         self.turn_score = 0
         self.dice = Counter()
         self.holds = Counter()
+        self.card = None
 
     @property
     def num_dice_remaining(self) -> int:
@@ -40,6 +44,7 @@ class Game:
 
     def to_state(self) -> StateT:
         return {
+            "card": self.card,
             "banked_score": self.banked_score,
             "turn_score": self.turn_score,
             "rolled": self.dice,
@@ -83,7 +88,9 @@ class Game:
         return score
 
     def handle_action(self, action: ActionT) -> None:
-        if action == "roll":
+        if action == "draw":
+            self.handle_draw()
+        elif action == "roll":
             self.handle_roll()
         elif action.startswith("hold"):
             self.handle_hold(action)  # type: ignore
@@ -91,11 +98,18 @@ class Game:
             self.handle_stop()
         else:
             raise UnknownActionError(action)
-        if action == "roll":
+        if action == "draw":
+            self.history.append(f"{action}: {self.card}")
+        elif action == "roll":
             dice = "".join(sorted(str(val) for die, count in self.dice.items() for val in [die] * count))
             self.history.append(f"{action}: {dice} ({len(dice)} dice)")
         else:
             self.history.append(action)
+
+    def handle_draw(self) -> None:
+        self.card = self.deck.draw()
+        if self.card.category == "no_dice":
+            self.handle_bust(history=self.card.category)
 
     def handle_roll(self) -> None:
         self.dice = self.roll_dice(self.num_dice_remaining)
@@ -125,13 +139,15 @@ class Game:
         self.turn_scores.append(self.turn_score)
         self._start_new_turn()
 
-    def handle_bust(self) -> None:
-        self.history.append("bust")
+    def handle_bust(self, history: str = "bust") -> None:
+        self.history.append(history)
         self.turn_score = 0
         self._start_new_turn()
 
     def handle_fill(self) -> None:
         self.history.append("fill")
+        if self.card and self.card.bonus:
+            self.turn_score += self.card.bonus
         self.dice = Counter()
         self.holds = Counter()
 

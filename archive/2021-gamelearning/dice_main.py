@@ -22,14 +22,14 @@ def main() -> None:
         smart,
         # Agent("dumb "),
         # RiskyAgent("risky"),
-        StopAtNDice("stop2", num_dice_to_stop_at=2),
-        StopAtNDice("stop3", num_dice_to_stop_at=3),
+        # StopAtNDice("stop2", num_dice_to_stop_at=2),
+        # StopAtNDice("stop3", num_dice_to_stop_at=3),
     ]
 
-    NUM_TRAIN_GAMES = 10000
+    NUM_TRAIN_GAMES = 100
     if smart in agents:
         smart.train(
-            num_episodes=NUM_TRAIN_GAMES, max_score=10_000, evaluate=True, verbose=True
+            num_episodes=NUM_TRAIN_GAMES, max_score=5_000, evaluate=True, verbose=True
         )
 
     # Evaluate the agents

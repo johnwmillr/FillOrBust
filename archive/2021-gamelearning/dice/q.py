@@ -54,11 +54,12 @@ class QTable:
         )
 
     def state_to_Q_table_key(self, state: StateT) -> tuple[str, str, str, str]:
-        banked_score_key = "banked_score_" + str(state["banked_score"])
-        turn_score_key = "turn_score_" + str(state["turn_score"])
-        roll_key = "roll_count_" + str(sorted(state["rolled"].elements()))
-        hold_key = "hold_count_" + str(sorted(state["held"].elements()))
-        return (turn_score_key, roll_key, hold_key)
+        card = "card_" + str(state["card"])
+        banked_score = "banked_score_" + str(state["banked_score"])
+        turn_score = "turn_score_" + str(state["turn_score"])
+        roll = "roll_count_" + str(sorted(state["rolled"].elements()))
+        hold = "hold_count_" + str(sorted(state["held"].elements()))
+        return (card, turn_score, roll, hold)
 
     def state_in_table(self, state: StateT) -> bool:
         return self.state_to_Q_table_key(state) in self.table
