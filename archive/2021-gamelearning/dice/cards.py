@@ -1,4 +1,5 @@
 from random import shuffle
+from typing import Literal
 
 
 class Card:
@@ -25,8 +26,9 @@ def make_a_no_dice_card() -> Card:
 def make_a_fill_1000() -> Card:
     return Card(title="Fill 1,000!", category="fill_1000", bonus=1000, must_fill=True)
 
+GardenVarietyBonusT = Literal[300, 400, 500]
 
-def make_a_bonus_card(bonus: int) -> Card:
+def make_a_bonus_card(bonus: GardenVarietyBonusT) -> Card:
     assert bonus in [300, 400, 500]
     return Card(
         title=f"Bonus {bonus}", category="garden_variety", bonus=bonus, must_fill=False

@@ -79,9 +79,10 @@ class Agent:
     def determine_available_actions(self, state: StateT) -> list[ActionT]:
         options: list[ActionT] = []
         if state["card"] is None:
-            return ["draw"]
-        if state["held"].total() == Game.NUM_DICE:  # Fill
-            return ["draw", "stop"]
+            options = ["draw"]
+            if state["turn_score"] > 0:
+                options.append("stop")
+            return options
         if len(state["rolled"]) == 0:  # There are unrolled dice
             options = ["roll"]
             if state["held"].total() > 0:

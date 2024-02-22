@@ -150,6 +150,7 @@ class Game:
             self.turn_score += self.card.bonus
         self.dice = Counter()
         self.holds = Counter()
+        self.card = None
 
     @property
     def turn_is_over(self) -> bool:
