@@ -1,4 +1,4 @@
-from dice.types import ActionT, StateT, QTableT
+from dice.types import ActionT, QTableKeyT, StateT, QTableT
 
 
 class UnknownActionError(Exception):
@@ -53,13 +53,14 @@ class QTable:
             f"<QTable: {self.learning_rate=}, {self.discount_factor=}, {self.epsilon=}>"
         )
 
-    def state_to_Q_table_key(self, state: StateT) -> tuple[str, str, str, str]:
+    def state_to_Q_table_key(self, state: StateT) -> QTableKeyT:
         card = "card_" + str(state["card"])
+        discard = "discard_" + str(list(map(str, state["discard"])))
         banked_score = "banked_score_" + str(state["banked_score"])
         turn_score = "turn_score_" + str(state["turn_score"])
         roll = "roll_count_" + str(sorted(state["rolled"].elements()))
         hold = "hold_count_" + str(sorted(state["held"].elements()))
-        return (card, turn_score, roll, hold)
+        return (card, discard, turn_score, roll, hold)
 
     def state_in_table(self, state: StateT) -> bool:
         return self.state_to_Q_table_key(state) in self.table

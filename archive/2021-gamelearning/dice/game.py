@@ -21,6 +21,7 @@ class Game:
         self.holds: Counter[int] = Counter()
         self.deck = Deck()
         self.card: Card | None = None
+        self.discard: list[Card] = []
         self.history: list[ActionT | str] = ["start"]
         self.max_score = max_score if max_score else 5_000
         self.states: list[StateT] = [deepcopy(self.state)]
@@ -30,8 +31,13 @@ class Game:
         self.history.append(f"NEW TURN, Score: {self.banked_score}")
         self.num_turns += 1
         self.turn_score = 0
+        self._reset_dice_holds_and_card()
+
+    def _reset_dice_holds_and_card(self) -> None:
         self.dice = Counter()
         self.holds = Counter()
+        if self.card:
+            self.discard.append(self.card)
         self.card = None
 
     @property
@@ -45,6 +51,7 @@ class Game:
     def to_state(self) -> StateT:
         return {
             "card": self.card,
+            "discard": self.discard,
             "banked_score": self.banked_score,
             "turn_score": self.turn_score,
             "rolled": self.dice,
@@ -148,9 +155,7 @@ class Game:
         self.history.append("fill")
         if self.card and self.card.bonus:
             self.turn_score += self.card.bonus
-        self.dice = Counter()
-        self.holds = Counter()
-        self.card = None
+        self._reset_dice_holds_and_card()
 
     @property
     def turn_is_over(self) -> bool:

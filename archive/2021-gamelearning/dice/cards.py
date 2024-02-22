@@ -2,6 +2,9 @@ from random import shuffle
 from typing import Literal
 
 
+GardenVarietyBonusT = Literal[300, 400, 500]
+
+
 class Card:
 
     def __init__(
@@ -13,7 +16,10 @@ class Card:
         self.must_fill = must_fill
 
     def __str__(self) -> str:
-        return self.title
+        string = self.category
+        if self.category == "garden_variety":
+            string += f"_{self.bonus}"
+        return string
 
     def __repr__(self) -> str:
         return f"<Card: {self.title}>"
@@ -26,7 +32,6 @@ def make_a_no_dice_card() -> Card:
 def make_a_fill_1000() -> Card:
     return Card(title="Fill 1,000!", category="fill_1000", bonus=1000, must_fill=True)
 
-GardenVarietyBonusT = Literal[300, 400, 500]
 
 def make_a_bonus_card(bonus: GardenVarietyBonusT) -> Card:
     assert bonus in [300, 400, 500]

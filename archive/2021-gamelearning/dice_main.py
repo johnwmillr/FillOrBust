@@ -26,7 +26,7 @@ def main() -> None:
         # StopAtNDice("stop3", num_dice_to_stop_at=3),
     ]
 
-    NUM_TRAIN_GAMES = 100
+    NUM_TRAIN_GAMES = 5000
     if smart in agents:
         smart.train(
             num_episodes=NUM_TRAIN_GAMES, max_score=5_000, evaluate=True, verbose=True
