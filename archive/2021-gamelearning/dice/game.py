@@ -21,10 +21,9 @@ class Game:
         self.holds: Counter[int] = Counter()
         self.deck = Deck()
         self.card: Card | None = None
-        self.discard: list[Card] = []
+        self.discard: Counter[Card] = Counter()
         self.history: list[ActionT | str] = ["start"]
         self.max_score = max_score if max_score else 5_000
-        self.states: list[StateT] = [deepcopy(self.state)]
         self._start_new_turn()
 
     def _start_new_turn(self) -> None:
@@ -36,8 +35,8 @@ class Game:
     def _reset_dice_holds_and_card(self) -> None:
         self.dice = Counter()
         self.holds = Counter()
-        if self.card:
-            self.discard.append(self.card)
+        if self.card and self.card.category == "no_dice":
+            self.discard[self.card] += 1
         self.card = None
 
     @property
@@ -51,7 +50,7 @@ class Game:
     def to_state(self) -> StateT:
         return {
             "card": self.card,
-            "discard": self.discard,
+            # "discard": self.discard,
             "banked_score": self.banked_score,
             "turn_score": self.turn_score,
             "rolled": self.dice,
@@ -75,23 +74,24 @@ class Game:
     @classmethod
     def calc_score(cls, dice: Counter[int]) -> int:
         assert len(dice), "Can't score empty dice"
-        dice = deepcopy(dice)
 
         # Check for a straight
         if dice == Game.STRAIGHT_DICE:
             return 1500
 
-        # Check for triples
+        # Check for triples and singles
         score = 0
         for die, count in dice.items():
             if count == 6:
                 return 2 * Game.TRIPLE_VALUES[die]
-            if count >= 3:
+            elif count >= 3:
                 score += Game.TRIPLE_VALUES[die]
-                dice[die] = count - 3
 
-        # Check for any single pointers
-        score += 100 * dice[1] + 50 * dice[5]
+            # Check for any single pointers
+            if die == 1:
+                score += 100 * (count % 3)
+            elif die == 5:
+                score += 50 * (count % 3)
         return score
 
     def handle_action(self, action: ActionT) -> None:
