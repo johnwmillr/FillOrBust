@@ -15,6 +15,12 @@ class Card:
         self.bonus = bonus
         self.must_fill = must_fill
 
+    def __lt__(self, other: "Card") -> bool:
+        return self.title < other.title
+
+    def __gt__(self, other: "Card") -> bool:
+        return self.title > other.title
+
     def __str__(self) -> str:
         string = self.category
         if self.category == "garden_variety":
@@ -45,16 +51,22 @@ class EmptyDeckException(Exception):
 
 
 class Deck:
+    NUM_NO_DICE = 8
+    NUM_FILL_1000 = 6
+    NUM_BONUS_300 = 12
+    NUM_BONUS_400 = 10
+    NUM_BONUS_500 = 8
+
     def __init__(self) -> None:
         self._shuffle_new_deck()
 
     def _shuffle_new_deck(self) -> None:
         self.cards: list[Card] = []
-        self.cards.extend(make_a_no_dice_card() for _ in range(8))
-        self.cards.extend(make_a_fill_1000() for _ in range(6))
-        self.cards.extend(make_a_bonus_card(300) for _ in range(12))
-        self.cards.extend(make_a_bonus_card(400) for _ in range(10))
-        self.cards.extend(make_a_bonus_card(500) for _ in range(8))
+        self.cards.extend(make_a_no_dice_card() for _ in range(self.NUM_NO_DICE))
+        self.cards.extend(make_a_fill_1000() for _ in range(self.NUM_FILL_1000))
+        self.cards.extend(make_a_bonus_card(300) for _ in range(self.NUM_BONUS_300))
+        self.cards.extend(make_a_bonus_card(400) for _ in range(self.NUM_BONUS_400))
+        self.cards.extend(make_a_bonus_card(500) for _ in range(self.NUM_BONUS_500))
         self.shuffle()
 
     def shuffle(self) -> None:

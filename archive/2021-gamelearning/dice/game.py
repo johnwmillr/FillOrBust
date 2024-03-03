@@ -1,5 +1,4 @@
 from collections import Counter
-from copy import deepcopy
 import random
 
 from dice.cards import Card, Deck

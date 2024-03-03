@@ -6,6 +6,15 @@ class UnknownActionError(Exception):
         super().__init__(*args)
 
 
+def convert_state_to_Q_table_key(state: StateT) -> QTableKeyT:
+    card = "card_" + str(state["card"])
+    # discard = "discard_" + str(sorted(state["discard"].elements()))
+    turn_score = "turn_score_" + str(state["turn_score"])
+    roll = "roll_count_" + str(sorted(state["rolled"].elements()))
+    hold = "hold_count_" + str(sorted(state["held"].elements()))
+    return "_".join([card, turn_score, roll, hold])
+
+
 class QTable:
     def __init__(
         self,
@@ -54,13 +63,16 @@ class QTable:
         )
 
     def state_to_Q_table_key(self, state: StateT) -> QTableKeyT:
+        if isinstance(state, str):
+            return state
+        return convert_state_to_Q_table_key(state)
         card = "card_" + str(state["card"])
-        discard = "discard_" + str(list(map(str, state["discard"])))
-        banked_score = "banked_score_" + str(state["banked_score"])
+        # discard = "discard_" + str(list(map(str, sorted(state["discard"]))))
+        # banked_score = "banked_score_" + str(state["banked_score"])
         turn_score = "turn_score_" + str(state["turn_score"])
         roll = "roll_count_" + str(sorted(state["rolled"].elements()))
         hold = "hold_count_" + str(sorted(state["held"].elements()))
-        return (card, discard, turn_score, roll, hold)
+        return (card, turn_score, roll, hold)
 
     def state_in_table(self, state: StateT) -> bool:
         return self.state_to_Q_table_key(state) in self.table
@@ -69,13 +81,12 @@ class QTable:
         return self.table.get(self.state_to_Q_table_key(state), {})
 
     def assign_value_to_state_and_action(
-        self, state: StateT, action: ActionT, value: float = 0.0, overwrite: bool = True
+        self, state: StateT, action: ActionT, value: float
     ) -> None:
         key = self.state_to_Q_table_key(state)
         if key not in self.table:
             self.table[key] = {}
-        if overwrite or (action not in self.table[key]):
-            self.table[key][action] = value
+        self.table[key][action] = value
 
     def update(
         self, current_state: StateT, action: ActionT, new_state: StateT, reward: float

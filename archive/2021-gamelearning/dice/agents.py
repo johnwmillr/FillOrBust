@@ -1,5 +1,4 @@
 from collections import Counter
-from copy import deepcopy
 from itertools import product
 import pickle
 import random
@@ -11,7 +10,7 @@ from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 
 from dice.game import Game
-from dice.q import QTable
+from dice.q import QTable, convert_state_to_Q_table_key
 from dice.types import ActionT, StateT
 
 
@@ -225,12 +224,12 @@ class Smart(Agent):
                     action = self.choose_action(game.state)  # Exploit
 
                 # Perform the selected action
-                previous_state = deepcopy(game.state)
+                previous_state = convert_state_to_Q_table_key(game.state)
                 game.handle_action(action)
-                reward = 1000 / game.num_turns if game.game_is_over else 0
+                reward = 1000 / game.num_turns**3 if game.game_is_over else 0
 
                 # Update the Q table based on the last action
-                self.Q.update(previous_state, action, deepcopy(game.state), reward)
+                self.Q.update(previous_state, action, convert_state_to_Q_table_key(game.state), reward)
             self.actions.append(game.history)
 
             # Perform incremental evaluations during training
@@ -262,7 +261,7 @@ class Smart(Agent):
                     f"Old LR: {self.Q.learning_rate:0.2f}, New LR: {new_learning_rate:0.2f}"
                 )
                 print(
-                    f"Old Discount Factor: {self.Q.discount_factor:0.2f}, New LR: {new_discount_factor:0.2f}"
+                    f"Old Discount Factor: {self.Q.discount_factor:0.2f}, New DF: {new_discount_factor:0.2f}"
                 )
                 # print(
                 #     f"Old epsilon: {self.Q.epsilon:0.2f}, New epsilon: {new_epsilon:0.2f}"
@@ -283,7 +282,7 @@ class Smart(Agent):
         max_score: int | None = None,
     ) -> tuple[float, int, int]:
         agent = Smart(
-            f"eval_{num_episode}" if num_episode else "eval", Q=deepcopy(self.Q)
+            f"eval_{num_episode}" if num_episode else "eval", Q=self.Q
         )
         for _ in range(num_games):
             agent.play(max_score=max_score)
@@ -329,6 +328,7 @@ class Smart(Agent):
                 alpha=0.3,
             )
         ax.set_ylabel("Num turns in game")
+        ax.set_xlabel("Num training games")
         ax2.set_ylabel("Points per turn")
         ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
         # ax.set_ylim((28, 60))

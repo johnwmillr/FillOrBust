@@ -16,7 +16,7 @@ StateT = TypedDict(
     "StateT",
     {
         "card": Card | None,
-        "discard": list[Card],
+        # "discard": Counter[Card],
         "banked_score": int,
         "turn_score": int,
         "rolled": Counter[int],
@@ -25,6 +25,5 @@ StateT = TypedDict(
 )
 
 
-QTableKeyT = tuple[str, str, str, str, str]
-
+QTableKeyT = tuple[str, str, str, str]
 QTableT = dict[QTableKeyT, dict[ActionT, float]]
