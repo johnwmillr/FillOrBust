@@ -8,13 +8,22 @@ import warnings
 
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
+from sklearn.exceptions import NotFittedError
+from sklearn.preprocessing import OneHotEncoder
+from scipy.sparse import hstack
 
 from dice.game import Game
 from dice.q import QTable, convert_state_to_Q_table_key
-from dice.types import ActionT, StateT
+from dice.types import ActionT, Estimator, State, StateT
 
 
 warnings.filterwarnings("ignore", category=UserWarning)  # Matplotlib
+
+
+with open(
+    "dice/dice_trained_encoder_RandomForest...1, verbose=1)_1710033197.pkl", "rb"
+) as fin:
+    encoder: OneHotEncoder = pickle.load(fin)
 
 
 class Agent:
@@ -75,23 +84,23 @@ class Agent:
 
         return sorted(holds)
 
-    def determine_available_actions(self, state: StateT) -> list[ActionT]:
+    def determine_available_actions(self, state: State) -> list[ActionT]:
         options: list[ActionT] = []
-        if state["card"] is None:
+        if state.card is None:
             options = ["draw"]
-            if state["turn_score"] > 0:
+            if state.turn_score > 0:
                 options.append("stop")
             return options
-        if len(state["rolled"]) == 0:  # There are unrolled dice
+        if len(state.dice) == 0:  # There are unrolled dice
             options = ["roll"]
-            if state["held"].total() > 0:
-                if state["card"] and not state["card"].must_fill:
+            if state.holds.total() > 0:
+                if state.card and not state.card.must_fill:
                     options.append("stop")
             return options
         else:
-            return self.determine_hold_options_from_dice(state["rolled"])
+            return self.determine_hold_options_from_dice(state.dice)
 
-    def choose_action(self, state: StateT) -> ActionT:
+    def choose_action(self, state: State) -> ActionT:
         return random.choice(self.determine_available_actions(state))
 
     def play(self, verbose: bool = False, max_score: int | None = None) -> None:
@@ -110,10 +119,10 @@ class Agent:
         self.median_turn_scores.append(
             sorted(game.turn_scores)[len(game.turn_scores) // 2]
         )
-        self.banked_scores.append(game.state["banked_score"])
-        self.total_score += game.state["banked_score"]
-        if game.state["banked_score"] > self.best_score:
-            self.best_score = game.state["banked_score"]
+        self.banked_scores.append(game.banked_score)
+        self.total_score += game.banked_score
+        if game.banked_score > self.best_score:
+            self.best_score = game.banked_score
         self.num_actions_in_game.append(len(game.history))
         self.num_turns_in_game.append(game.num_turns)
         self.num_games_played += 1
@@ -138,10 +147,10 @@ class Agent:
 
 
 class RiskyAgent(Agent):
-    def choose_action(self, state: StateT) -> ActionT:
+    def choose_action(self, state: State) -> ActionT:
         possible_actions = self.determine_available_actions(state)
         if "roll" in possible_actions:
-            if (Game.NUM_DICE - state["held"].total()) > 1:
+            if (Game.NUM_DICE - state.holds.total()) > 1:
                 return "roll"
         return super().choose_action(state)
 
@@ -151,11 +160,11 @@ class StopAtNDice(Agent):
         super().__init__(name)
         self.num_dice_to_stop_at = num_dice_to_stop_at
 
-    def choose_action(self, state: StateT) -> ActionT:
+    def choose_action(self, state: State) -> ActionT:
         possible_actions = self.determine_available_actions(state)
         if (
             "stop" in possible_actions
-            and (Game.NUM_DICE - state["held"].total()) <= self.num_dice_to_stop_at
+            and (Game.NUM_DICE - state.holds.total()) <= self.num_dice_to_stop_at
         ):
             return "stop"
 
@@ -170,15 +179,63 @@ class Smart(Agent):
         Q: QTable | None = None,
         learning_rate_decay: float = 1.0,
         discount_factor_decay: float = 1.0,
+        epsilon_decay: float = 1.0,
+        estimator: Estimator | None = None,
     ) -> None:
         super().__init__(name)
         self.Q = QTable() if Q is None else Q
         self.evaluations: list[tuple[int, float, int, int]] = []
-        self.print_actions = False
         self.learning_rate_decay = learning_rate_decay
         self.discount_factor_decay = discount_factor_decay
+        self.epsilon_decay = epsilon_decay
+        self.estimator = estimator
+        self.X: list[tuple[str, ActionT]] = []
+        self.y: list[float] = []
 
-    def choose_action(self, state: StateT) -> ActionT:
+    def predict_reward_for_state_and_action(
+        self,
+        state: State,
+        action: ActionT,
+    ):
+        assert self.estimator is not None
+        # state: StateT = {
+        #     "card": card,
+        #     "turn_score": turn_score,
+        #     "rolled": dice,
+        #     "held": holds,
+        # }
+        numerical = []
+        categorical = []
+        for item in convert_state_to_Q_table_key(state).split("+"):
+            if item.startswith("turn_score_"):
+                numerical.append(int(item.rsplit("_")[-1]))
+            else:
+                categorical.append(item)
+        categorical.append(action)
+        encoded = encoder.transform([categorical])
+        return self.estimator.predict(hstack((numerical, encoded)))
+
+    def _choose_action_from_estimator(self, state: StateT) -> ActionT | None:
+        assert (
+            self.estimator is not None
+        ), f"{self} does not have an estimator available."
+
+        max_reward = None
+        best_action: ActionT | None = None
+        for action in self.determine_available_actions(state):
+            try:
+                predicted_reward = self.predict_reward_for_state_and_action(
+                    state, action
+                )[0]
+            except ValueError as e:
+                print(e)
+                return None
+            if max_reward is None or predicted_reward > max_reward:
+                max_reward = predicted_reward
+                best_action = action
+        return best_action
+
+    def _choose_action_from_q_table(self, state: StateT) -> ActionT | None:
         assert self.Q is not None, f"{self.name}'s Q Table is empty."
 
         if Q_values := self.Q.get_Q_values_for_state(state):
@@ -190,9 +247,18 @@ class Smart(Agent):
                     best_action = action
             if best_action and best_action in self.determine_available_actions(state):
                 return best_action
-        elif self.print_actions:
-            print(state)
+
+        print(f"Unrecognized state: {state}")
+        if self.estimator is not None:
+            try:
+                if action := self._choose_action_from_estimator(state):
+                    return action
+            except NotFittedError:
+                pass
         return super().choose_action(state)
+
+    def choose_action(self, state: StateT) -> ActionT:
+        return self._choose_action_from_q_table(state)
 
     def train(
         self,
@@ -225,11 +291,18 @@ class Smart(Agent):
 
                 # Perform the selected action
                 previous_state = convert_state_to_Q_table_key(game.state)
+                self.X.append((previous_state, action))
                 game.handle_action(action)
-                reward = 1000 / game.num_turns**3 if game.game_is_over else 0
+                reward = 1000 / game.num_turns if game.game_is_over else 0.0
 
                 # Update the Q table based on the last action
-                self.Q.update(previous_state, action, convert_state_to_Q_table_key(game.state), reward)
+                q_value = self.Q.update(
+                    previous_state,
+                    action,
+                    convert_state_to_Q_table_key(game.state),
+                    reward,
+                )
+                self.y.append(q_value)
             self.actions.append(game.history)
 
             # Perform incremental evaluations during training
@@ -248,27 +321,30 @@ class Smart(Agent):
                         )
                     )
             if num_episode and (num_episode % (num_episodes / 5)) == 0:
-                new_learning_rate = self.learning_rate_decay * self.Q.learning_rate
-                new_discount_factor = min(
-                    self.discount_factor_decay * self.Q.discount_factor, 1
-                )
-                # new_epsilon = 0.9 * self.Q.epsilon
                 if evaluate:
                     print(
                         f"Mean: {self.evaluations[-1][1]}, Median: {self.evaluations[-1][2]}, Points/turn: {self.evaluations[-1][3]}"
                     )
-                print(
-                    f"Old LR: {self.Q.learning_rate:0.2f}, New LR: {new_learning_rate:0.2f}"
-                )
-                print(
-                    f"Old Discount Factor: {self.Q.discount_factor:0.2f}, New DF: {new_discount_factor:0.2f}"
-                )
-                # print(
-                #     f"Old epsilon: {self.Q.epsilon:0.2f}, New epsilon: {new_epsilon:0.2f}"
-                # )
-                self.Q.learning_rate = new_learning_rate
-                self.Q.discount_factor = new_discount_factor
-                # self.Q.epsilon = new_epsilon
+                if verbose and self.learning_rate_decay != 1.0:
+                    new_learning_rate = self.learning_rate_decay * self.Q.learning_rate
+                    print(
+                        f"Old LR: {self.Q.learning_rate:0.2f}, New LR: {new_learning_rate:0.2f}"
+                    )
+                    self.Q.learning_rate = new_learning_rate
+                if verbose and self.discount_factor_decay != 1.0:
+                    new_discount_factor = min(
+                        self.discount_factor_decay * self.Q.discount_factor, 1
+                    )
+                    print(
+                        f"Old Discount Factor: {self.Q.discount_factor:0.2f}, New DF: {new_discount_factor:0.2f}"
+                    )
+                    self.Q.discount_factor = new_discount_factor
+                if verbose and self.epsilon_decay != 1.0:
+                    new_epsilon = min(self.epsilon_decay * self.Q.epsilon, 1)
+                    print(
+                        f"Old Epsilon: {self.Q.epsilon:0.2f}, New Ep: {new_epsilon:0.2f}"
+                    )
+                    self.Q.epsilon = new_epsilon
         elapsed = (time.time() - t_start) / 60
         print(
             f"{self.name.title()} Agent is done training. ({num_episodes} episodes.) ({elapsed:0.1f} minutes)"
@@ -281,9 +357,7 @@ class Smart(Agent):
         optimize_for_score: bool = True,
         max_score: int | None = None,
     ) -> tuple[float, int, int]:
-        agent = Smart(
-            f"eval_{num_episode}" if num_episode else "eval", Q=self.Q
-        )
+        agent = Smart(f"eval_{num_episode}" if num_episode else "eval", Q=self.Q)
         for _ in range(num_games):
             agent.play(max_score=max_score)
 

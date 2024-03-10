@@ -1,4 +1,4 @@
-from dice.types import ActionT, QTableKeyT, StateT, QTableT
+from dice.types import ActionT, QTableKeyT, State, QTableT
 
 
 class UnknownActionError(Exception):
@@ -6,13 +6,13 @@ class UnknownActionError(Exception):
         super().__init__(*args)
 
 
-def convert_state_to_Q_table_key(state: StateT) -> QTableKeyT:
-    card = "card_" + str(state["card"])
-    # discard = "discard_" + str(sorted(state["discard"].elements()))
-    turn_score = "turn_score_" + str(state["turn_score"])
-    roll = "roll_count_" + str(sorted(state["rolled"].elements()))
-    hold = "hold_count_" + str(sorted(state["held"].elements()))
-    return "_".join([card, turn_score, roll, hold])
+def convert_state_to_Q_table_key(state: State) -> QTableKeyT:
+    card = "card_" + str(state.card)
+    # discard = "discard_" + str(sorted(state.discard.elements()))
+    turn_score = "turn_score_" + str(state.turn_score)
+    dice = "roll_count_" + str(sorted(state.dice.elements()))
+    holds = "hold_count_" + str(sorted(state.holds.elements()))
+    return "+".join((card, turn_score, dice, holds))
 
 
 class QTable:
@@ -62,26 +62,24 @@ class QTable:
             f"<QTable: {self.learning_rate=}, {self.discount_factor=}, {self.epsilon=}>"
         )
 
-    def state_to_Q_table_key(self, state: StateT) -> QTableKeyT:
-        if isinstance(state, str):
-            return state
+    def state_to_Q_table_key(self, state: State) -> QTableKeyT:
         return convert_state_to_Q_table_key(state)
-        card = "card_" + str(state["card"])
-        # discard = "discard_" + str(list(map(str, sorted(state["discard"]))))
-        # banked_score = "banked_score_" + str(state["banked_score"])
-        turn_score = "turn_score_" + str(state["turn_score"])
-        roll = "roll_count_" + str(sorted(state["rolled"].elements()))
-        hold = "hold_count_" + str(sorted(state["held"].elements()))
+        card = "card_" + str(state.card)
+        # discard = "discard_" + str(list(map(str, sorted(state.discard))))
+        # banked_score = "banked_score_" + str(state.banked_score)
+        turn_score = "turn_score_" + str(state.turn_score)
+        roll = "roll_count_" + str(sorted(state.dice.elements()))
+        hold = "hold_count_" + str(sorted(state.holds.elements()))
         return (card, turn_score, roll, hold)
 
-    def state_in_table(self, state: StateT) -> bool:
+    def state_in_table(self, state: State) -> bool:
         return self.state_to_Q_table_key(state) in self.table
 
-    def get_Q_values_for_state(self, state: StateT) -> dict[ActionT, float]:
+    def get_Q_values_for_state(self, state: State) -> dict[ActionT, float]:
         return self.table.get(self.state_to_Q_table_key(state), {})
 
     def assign_value_to_state_and_action(
-        self, state: StateT, action: ActionT, value: float
+        self, state: State, action: ActionT, value: float
     ) -> None:
         key = self.state_to_Q_table_key(state)
         if key not in self.table:
@@ -89,7 +87,7 @@ class QTable:
         self.table[key][action] = value
 
     def update(
-        self, current_state: StateT, action: ActionT, new_state: StateT, reward: float
+        self, current_state: State, action: ActionT, new_state: State, reward: float
     ) -> None:
         """
         Update the Q-table based on the observed state, action, new state, and reward.

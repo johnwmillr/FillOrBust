@@ -1,9 +1,10 @@
-from collections import Counter
 import random
+from collections import Counter
+
 
 from dice.cards import Card, Deck
 from dice.q import UnknownActionError
-from dice.types import ActionT, StateT
+from dice.types import ActionT, State
 
 
 class Game:
@@ -13,7 +14,7 @@ class Game:
 
     def __init__(self, max_score: int | None = None) -> None:
         self.turn_score = 0
-        self.turn_scores = []
+        self.turn_scores: list[int] = []
         self.banked_score = 0
         self.num_turns = 0
         self.dice: Counter[int] = Counter()
@@ -34,8 +35,8 @@ class Game:
     def _reset_dice_holds_and_card(self) -> None:
         self.dice = Counter()
         self.holds = Counter()
-        if self.card and self.card.category == "no_dice":
-            self.discard[self.card] += 1
+        # if self.card and self.card.category == "no_dice":
+        #     self.discard[self.card] += 1
         self.card = None
 
     @property
@@ -43,18 +44,20 @@ class Game:
         return Game.NUM_DICE - self.holds.total()
 
     @property
-    def state(self) -> StateT:
-        return self.to_state()
+    def state(self) -> State:
+        return State(
+            card=self.card,
+            turn_score=self.turn_score,
+            dice=self.dice,
+            holds=self.holds,
+        )
 
-    def to_state(self) -> StateT:
-        return {
-            "card": self.card,
-            # "discard": self.discard,
-            "banked_score": self.banked_score,
-            "turn_score": self.turn_score,
-            "rolled": self.dice,
-            "held": self.holds,
-        }
+        # "card": self.card,
+        # "banked_score": self.banked_score,
+        # "turn_score": self.turn_score,
+        # "rolled": self.dice,
+        # "held": self.holds,
+        # # "discard": self.discard,
 
     @property
     def stopped(self) -> bool:
@@ -65,7 +68,7 @@ class Game:
         def no_pointers_on_dice(dice: Counter[int]) -> bool:
             return (dice[1] + dice[5]) == 0 and max(dice.values()) < 3
 
-        return self.state["rolled"].total() > 0 and no_pointers_on_dice(self.dice)
+        return self.state.dice.total() > 0 and no_pointers_on_dice(self.dice)
 
     def roll_dice(self, num_dice: int) -> Counter[int]:
         return Counter(random.randint(1, 6) for _ in range(num_dice))
@@ -107,7 +110,13 @@ class Game:
         if action == "draw":
             self.history.append(f"{action}: {self.card}")
         elif action == "roll":
-            dice = "".join(sorted(str(val) for die, count in self.dice.items() for val in [die] * count))
+            dice = "".join(
+                sorted(
+                    str(val)
+                    for die, count in self.dice.items()
+                    for val in [die] * count
+                )
+            )
             self.history.append(f"{action}: {dice} ({len(dice)} dice)")
         else:
             self.history.append(action)
@@ -133,7 +142,12 @@ class Game:
 
         # Compute the incremental turn score (to deal with triples same roll requirement)
         # TODO: Just store the holds incrementally, don't calc the score each time
-        holds = Counter({die: int(count) for die, count in enumerate(hold_action.split("_")[-1], start=1)})
+        holds = Counter(
+            {
+                die: int(count)
+                for die, count in enumerate(hold_action.split("_")[-1], start=1)
+            }
+        )
         self.turn_score += self.calc_score(holds)  # type:ignore
 
         if self.holds.total() == self.NUM_DICE:
