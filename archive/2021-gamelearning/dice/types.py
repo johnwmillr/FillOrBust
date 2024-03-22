@@ -19,7 +19,8 @@ ArrayShape = tuple[int, int]
 
 class State(NamedTuple):
     card: Card | None
-    # banked_score: int
+    discard: Counter[Card]
+    banked_score: int
     turn_score: int
     dice: Counter[int]
     holds: Counter[int]
@@ -29,8 +30,8 @@ StateT = TypedDict(
     "StateT",
     {
         "card": Card | None,
-        # "discard": Counter[Card],
-        # "banked_score": int,
+        "discard": Counter[Card],
+        "banked_score": int,
         "turn_score": int,
         "rolled": Counter[int],
         "held": Counter[int],

@@ -35,8 +35,8 @@ class Game:
     def _reset_dice_holds_and_card(self) -> None:
         self.dice = Counter()
         self.holds = Counter()
-        # if self.card and self.card.category == "no_dice":
-        #     self.discard[self.card] += 1
+        if self.card and self.card.category == "no_dice":
+            self.discard[self.card] += 1
         self.card = None
 
     @property
@@ -47,17 +47,12 @@ class Game:
     def state(self) -> State:
         return State(
             card=self.card,
+            discard=self.discard,
             turn_score=self.turn_score,
+            banked_score=self.banked_score,
             dice=self.dice,
             holds=self.holds,
         )
-
-        # "card": self.card,
-        # "banked_score": self.banked_score,
-        # "turn_score": self.turn_score,
-        # "rolled": self.dice,
-        # "held": self.holds,
-        # # "discard": self.discard,
 
     @property
     def stopped(self) -> bool:
@@ -124,6 +119,7 @@ class Game:
     def handle_draw(self) -> None:
         self.card = self.deck.draw()
         if self.card.category == "no_dice":
+            # TODO: No Dice cards never get recorded in state, fix this
             self.handle_bust(history=self.card.category)
 
     def handle_roll(self) -> None:

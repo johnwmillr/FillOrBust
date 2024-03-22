@@ -7,12 +7,15 @@ class UnknownActionError(Exception):
 
 
 def convert_state_to_Q_table_key(state: State) -> QTableKeyT:
+    if isinstance(state, str):
+        return state
     card = "card_" + str(state.card)
-    # discard = "discard_" + str(sorted(state.discard.elements()))
+    discard = "discard_" + str(sorted(state.discard.elements()))
+    banked_score = "banked_score_" + str(state.banked_score)
     turn_score = "turn_score_" + str(state.turn_score)
     dice = "roll_count_" + str(sorted(state.dice.elements()))
     holds = "hold_count_" + str(sorted(state.holds.elements()))
-    return "+".join((card, turn_score, dice, holds))
+    return "+".join((card, discard, banked_score, turn_score, dice, holds))
 
 
 class QTable:
@@ -88,7 +91,7 @@ class QTable:
 
     def update(
         self, current_state: State, action: ActionT, new_state: State, reward: float
-    ) -> None:
+    ) -> float:
         """
         Update the Q-table based on the observed state, action, new state, and reward.
 
@@ -116,3 +119,4 @@ class QTable:
             reward + self.discount_factor * max_next_q_value - current_q_value
         )
         self.assign_value_to_state_and_action(current_state, action, updated_q_value)
+        return updated_q_value

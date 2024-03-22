@@ -20,9 +20,8 @@ from dice.types import ActionT, Estimator, State, StateT
 warnings.filterwarnings("ignore", category=UserWarning)  # Matplotlib
 
 
-with open(
-    "dice/dice_trained_encoder_RandomForest...1, verbose=1)_1710033197.pkl", "rb"
-) as fin:
+fp = "./dice/dice_trained_encoder_RandomForestRegressor_1710095106.pkl"
+with open(fp, "rb") as fin:
     encoder: OneHotEncoder = pickle.load(fin)
 
 
@@ -198,22 +197,17 @@ class Smart(Agent):
         action: ActionT,
     ):
         assert self.estimator is not None
-        # state: StateT = {
-        #     "card": card,
-        #     "turn_score": turn_score,
-        #     "rolled": dice,
-        #     "held": holds,
-        # }
-        numerical = []
-        categorical = []
+        numerical_columns = ["banked_score", "turn_score"]
+        categorical_features: list[str] = []
+        numerical_features: list[int] = []
         for item in convert_state_to_Q_table_key(state).split("+"):
-            if item.startswith("turn_score_"):
-                numerical.append(int(item.rsplit("_")[-1]))
+            if item.rsplit("_", 1)[0] in numerical_columns:
+                numerical_features.append(int(item.split("_")[-1]))
             else:
-                categorical.append(item)
-        categorical.append(action)
-        encoded = encoder.transform([categorical])
-        return self.estimator.predict(hstack((numerical, encoded)))
+                categorical_features.append(item)
+        categorical_features.append(action)
+        encoded_categorical_features = encoder.transform([categorical_features])
+        return self.estimator.predict(hstack((numerical_features, encoded_categorical_features)))
 
     def _choose_action_from_estimator(self, state: StateT) -> ActionT | None:
         assert (
@@ -248,7 +242,7 @@ class Smart(Agent):
             if best_action and best_action in self.determine_available_actions(state):
                 return best_action
 
-        print(f"Unrecognized state: {state}")
+        print(f"Unknown state: {state}")
         if self.estimator is not None:
             try:
                 if action := self._choose_action_from_estimator(state):
