@@ -1,4 +1,3 @@
-from collections import Counter
 from itertools import product
 import pickle
 import random
@@ -8,21 +7,19 @@ import warnings
 
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
-from sklearn.exceptions import NotFittedError
-from sklearn.preprocessing import OneHotEncoder
-from scipy.sparse import hstack
 
 from dice.game import Game
-from dice.q import QTable, convert_state_to_Q_table_key
-from dice.types import ActionT, Estimator, State, StateT
+from dice.q import QTable
+from dice.types import ActionT, State
+from dice.utils import count_dice
 
 
 warnings.filterwarnings("ignore", category=UserWarning)  # Matplotlib
 
 
-fp = "./dice/dice_trained_encoder_RandomForestRegressor_1710095106.pkl"
-with open(fp, "rb") as fin:
-    encoder: OneHotEncoder = pickle.load(fin)
+# fp = "./dice/dice_trained_encoder_RandomForestRegressor_1710095106.pkl"
+# with open(fp, "rb") as fin:
+#     encoder: OneHotEncoder = pickle.load(fin)
 
 
 class Agent:
@@ -33,13 +30,12 @@ class Agent:
         self.total_score = 0
         self.best_score = -1
         self.num_games_played = 0
-        self.actions = []
         self.num_actions_in_game: list[int] = []
         self.num_turns_in_game: list[int] = []
 
     def determine_hold_options_from_dice(
         self,
-        dice: Counter[int],
+        dice: list[int],
     ) -> list[ActionT]:
         if len(dice) == 0:
             return []
@@ -55,32 +51,28 @@ class Agent:
             n: ("0",) for n in range(1, Game.NUM_DICE + 1)
         }
 
-        # Check or singles
-        for single in [1, 5]:
-            options[single] = tuple(map(str, range(dice[single] + 1)))
-
-        # Check for triples
-        for triple in [2, 3, 4, 6]:
-            count = dice[triple]
+        # Check for singles
+        counts = count_dice(dice)
+        for die, count in enumerate(counts, start=1):
+            # Check for triples
             if count >= 3:
-                options[triple] += ("3",)
-                if count == 6:
-                    options[triple] += ("6",)
+                options[die] += ("3",)
+            if count == 6:
+                options[die] += ("6",)
+
+            # Check for singles
+            if count and die in [1, 5]:
+                options[die] += tuple(map(str, range(count + 1)))
 
         # Translate dice options to "hold_" strings
         holds = map(
             lambda x: cast(ActionT, "hold_" + "".join(x)), product(*options.values())
         )
-        holds = list(
+        holds = set(
             cast(ActionT, item)
             for item in holds
             if not str(item).endswith("0" * Game.NUM_DICE)
-        )
-
-        # Check that all holds are valid
-        for hold in holds:
-            assert sum(map(int, str(hold).split("_")[-1])) <= Game.NUM_DICE, hold
-
+        )  # ignore: type
         return sorted(holds)
 
     def determine_available_actions(self, state: State) -> list[ActionT]:
@@ -92,7 +84,7 @@ class Agent:
             return options
         if len(state.dice) == 0:  # There are unrolled dice
             options = ["roll"]
-            if state.holds.total() > 0:
+            if len(state.holds) > 0:
                 if state.card and not state.card.must_fill:
                     options.append("stop")
             return options
@@ -149,7 +141,7 @@ class RiskyAgent(Agent):
     def choose_action(self, state: State) -> ActionT:
         possible_actions = self.determine_available_actions(state)
         if "roll" in possible_actions:
-            if (Game.NUM_DICE - state.holds.total()) > 1:
+            if (Game.NUM_DICE - sum(state.holds)) > 1:
                 return "roll"
         return super().choose_action(state)
 
@@ -163,7 +155,7 @@ class StopAtNDice(Agent):
         possible_actions = self.determine_available_actions(state)
         if (
             "stop" in possible_actions
-            and (Game.NUM_DICE - state.holds.total()) <= self.num_dice_to_stop_at
+            and (Game.NUM_DICE - sum(state.holds)) <= self.num_dice_to_stop_at
         ):
             return "stop"
 
@@ -179,7 +171,6 @@ class Smart(Agent):
         learning_rate_decay: float = 1.0,
         discount_factor_decay: float = 1.0,
         epsilon_decay: float = 1.0,
-        estimator: Estimator | None = None,
     ) -> None:
         super().__init__(name)
         self.Q = QTable() if Q is None else Q
@@ -187,49 +178,8 @@ class Smart(Agent):
         self.learning_rate_decay = learning_rate_decay
         self.discount_factor_decay = discount_factor_decay
         self.epsilon_decay = epsilon_decay
-        self.estimator = estimator
-        self.X: list[tuple[str, ActionT]] = []
-        self.y: list[float] = []
 
-    def predict_reward_for_state_and_action(
-        self,
-        state: State,
-        action: ActionT,
-    ):
-        assert self.estimator is not None
-        numerical_columns = ["banked_score", "turn_score"]
-        categorical_features: list[str] = []
-        numerical_features: list[int] = []
-        for item in convert_state_to_Q_table_key(state).split("+"):
-            if item.rsplit("_", 1)[0] in numerical_columns:
-                numerical_features.append(int(item.split("_")[-1]))
-            else:
-                categorical_features.append(item)
-        categorical_features.append(action)
-        encoded_categorical_features = encoder.transform([categorical_features])
-        return self.estimator.predict(hstack((numerical_features, encoded_categorical_features)))
-
-    def _choose_action_from_estimator(self, state: StateT) -> ActionT | None:
-        assert (
-            self.estimator is not None
-        ), f"{self} does not have an estimator available."
-
-        max_reward = None
-        best_action: ActionT | None = None
-        for action in self.determine_available_actions(state):
-            try:
-                predicted_reward = self.predict_reward_for_state_and_action(
-                    state, action
-                )[0]
-            except ValueError as e:
-                print(e)
-                return None
-            if max_reward is None or predicted_reward > max_reward:
-                max_reward = predicted_reward
-                best_action = action
-        return best_action
-
-    def _choose_action_from_q_table(self, state: StateT) -> ActionT | None:
+    def _choose_action_from_q_table(self, state: State) -> ActionT:
         assert self.Q is not None, f"{self.name}'s Q Table is empty."
 
         if Q_values := self.Q.get_Q_values_for_state(state):
@@ -241,17 +191,9 @@ class Smart(Agent):
                     best_action = action
             if best_action and best_action in self.determine_available_actions(state):
                 return best_action
-
-        print(f"Unknown state: {state}")
-        if self.estimator is not None:
-            try:
-                if action := self._choose_action_from_estimator(state):
-                    return action
-            except NotFittedError:
-                pass
         return super().choose_action(state)
 
-    def choose_action(self, state: StateT) -> ActionT:
+    def choose_action(self, state: State) -> ActionT:
         return self._choose_action_from_q_table(state)
 
     def train(
@@ -276,28 +218,23 @@ class Smart(Agent):
             while not game.game_is_over:
                 # Determine which action to take based on current state
                 action: ActionT
-                if random.random() < self.Q.epsilon or not self.Q.state_in_table(
-                    game.state
-                ):
+                if random.random() < self.Q.epsilon or not game.state not in self.Q.table:
                     action = super().choose_action(game.state)  # Explore
                 else:
                     action = self.choose_action(game.state)  # Exploit
 
                 # Perform the selected action
-                previous_state = convert_state_to_Q_table_key(game.state)
-                self.X.append((previous_state, action))
+                previous_state = game.state
                 game.handle_action(action)
-                reward = 1000 / game.num_turns if game.game_is_over else 0.0
+                reward = 1000 / game.num_turns ** 3 if game.game_is_over else 0.0
 
                 # Update the Q table based on the last action
-                q_value = self.Q.update(
+                self.Q.update(
                     previous_state,
                     action,
-                    convert_state_to_Q_table_key(game.state),
+                    game.state,
                     reward,
                 )
-                self.y.append(q_value)
-            self.actions.append(game.history)
 
             # Perform incremental evaluations during training
             if (num_episode % increment) == 0:
@@ -399,9 +336,6 @@ class Smart(Agent):
         ax.set_xlabel("Num training games")
         ax2.set_ylabel("Points per turn")
         ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
-        # ax.set_ylim((28, 60))
-        # ax2.set_ylim((50, 500))
-        # ax.legend()
         fig.tight_layout()
         plt.show()
 
