@@ -1,183 +1,207 @@
+from collections import defaultdict
+from itertools import product
 import random
-from collections import Counter
-from typing import Callable
 
-from dice.cards import Card, Deck
-from dice.q import UnknownActionError
-from dice.types import ActionT, State
-from dice.utils import count_dice
+from dice.types import ActionT, DiceCounts, Observation
 
 
-class Game:
-    NUM_DICE = 6
-    TRIPLE_VALUES = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
-    STRAIGHT_DICE = [1, 2, 3, 4, 5, 6]
+NUM_DICE_IN_GAME = 6
+TRIPLE_VALUES = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
 
-    def __init__(self, max_score: int | None = None) -> None:
-        self.turn_score = 0
-        self.turn_scores: list[int] = []
-        self.banked_score = 0
-        self.num_turns = 0
-        self.dice: tuple[int, ...] = ()
-        self.holds: tuple[int, ...] = ()
-        self.deck = Deck()
-        self.card: Card | None = None
-        self.discard: Counter[Card] = Counter()
-        self.history: list[ActionT | str] = ["start"]
-        self.max_score = max_score if max_score else 5_000
-        self.state_before_action_cleanup = []
-        self._start_new_turn()
 
-    def _start_new_turn(self) -> None:
-        self.history.append(f"NEW TURN, Score: {self.banked_score}")
+def calc_score(dice: DiceCounts) -> int:
+    assert len(dice), "Can't score empty dice"
+
+    # Check for a straight
+    if dice == (1, 1, 1, 1, 1, 1):
+        return 1500
+
+    # Check for triples and singles
+    score = 0
+    for die, count in enumerate(dice, start=1):
+        if count == 6:
+            return 2 * TRIPLE_VALUES[die]
+        elif count >= 3:
+            score += TRIPLE_VALUES[die]
+
+        # Check for any single pointers
+        if die == 1:
+            score += 100 * (count % 3)
+        elif die == 5:
+            score += 50 * (count % 3)
+    return score
+
+
+def determine_available_actions(obs: Observation) -> list[ActionT]:
+    """Determine what actions are available based on the current state
+
+    Returns:
+        list[ActionT]: A list of possible actions.
+    """
+    options: list[ActionT] = []
+
+    # No rolled dice to act on
+    if sum(obs.dice) == 0:
+        # No just-rolled dice, could roll
+        options.append(("roll", None))
+        if obs.hold_score > 0:
+            # Have held some dice, could stop
+            options.append(("stop", None))
+        return options
+
+    # We just rolled, need to hold some dice
+    possible_holds = determine_hold_options_from_dice(obs.dice)
+    options.extend(("hold", hold) for hold in possible_holds)
+    return options
+
+
+def determine_hold_options_from_dice(dice: DiceCounts) -> list[DiceCounts]:
+    if sum(dice) == 0:
+        return [DiceCounts((0, 0, 0, 0, 0, 0))]
+
+    # Check for a straight
+    if dice == DiceCounts((1, 1, 1, 1, 1, 1)):
+        return [DiceCounts((1, 1, 1, 1, 1, 1))]
+
+    # Keep track of how many times a particular dice can be held
+    options: defaultdict[int, tuple[int, ...]] = defaultdict(tuple[int])
+    for n in range(1, NUM_DICE_IN_GAME + 1):
+        options[n] = (0,)
+
+    # Check for singles
+    for die, count in enumerate(dice, start=1):
+        # Check for triples
+        if count >= 3:
+            options[die] += (3,)
+        if count == 6:
+            options[die] += (6,)
+
+        # Check for singles
+        if count and die in [1, 5]:
+            options[die] += tuple(range(count + 1))
+
+    # Translate dice options to "hold_" strings
+    holds = product(*options.values())
+    holds = set(DiceCounts(item) for item in holds if item != ((0,) * NUM_DICE_IN_GAME))
+    return sorted(holds)
+
+
+def roll_dice(num_dice: int) -> DiceCounts:
+    dice = list(random.randint(1, 6) for _ in range(num_dice))
+    return DiceCounts(dice.count(die) for die in range(1, 7))  # type: ignore
+
+
+def hold_dice(current_holds, new_holds: DiceCounts) -> DiceCounts:
+    return DiceCounts(
+        old_hold + new_hold for old_hold, new_hold in zip(current_holds, new_holds)
+    )
+
+
+def is_bust(dice: DiceCounts) -> bool:
+    return dice[0] == 0 and dice[4] == 0 and max(dice) < 3
+
+
+def is_fill(held_dice: DiceCounts) -> bool:
+    return sum(held_dice) == NUM_DICE_IN_GAME
+
+
+# https://gymnasium.farama.org/tutorials/training_agents/blackjack_tutorial/
+class FillOrBustEnvironment:
+    def __init__(self, score_needed_to_win: int = 10_000) -> None:
+        self.score_needed_to_win = score_needed_to_win
+        self._steps = []
+        self.num_turns_to_win = []
+        self.rewards = []
+        self.turn_scores = []
+        self.turn_lengths = []
+        self._reset_for_new_game()
+
+    def step(self, action: ActionT) -> tuple[Observation, float, bool, bool, dict]:
+        """Run one timestep of the environment's dynamics.
+
+        When end of episode is reached, you are responsible for calling :meth:`reset` to reset this environment's state.
+
+        Args:
+            action (ActType): an action provided by the agent
+
+        Returns:
+            observation: this will be an element of the environment's :attr:`observation_space`.
+                This may, for instance, be a numpy array containing the positions and velocities of certain objects.
+            reward: The amount of reward returned as a result of taking the action.
+            terminated: whether a `terminal state` (as defined under the MDP of the task) is reached.
+                In this case further step() calls could return undefined results.
+            truncated: whether a truncation condition outside the scope of the MDP is satisfied.
+                Typically a time limit, but could also be used to indicate agent physically going out of bounds.
+                Can be used to end the episode prematurely before a `terminal state` is reached.
+            info: `info` contains auxiliary diagnostic information (helpful for debugging, learning, and logging).
+                This might, for instance, contain: metrics that describe the agent's performance state, variables that are
+                hidden from observations, or individual reward terms that are combined to produce the total reward.
+                It also can contain information that distinguishes truncation and termination, however this is deprecated in favour
+                of returning two booleans, and will be removed in a future version.
+        """
+        self._steps.append((self._get_obs(), action))
+        reward = 0
+        terminated, truncated = False, False
+        if action[0] == "roll":
+            self.dice = roll_dice(NUM_DICE_IN_GAME - sum(self.holds))
+            if is_bust(self.dice):
+                self.reset_for_new_turn()
+        elif action[0] == "hold":
+            assert isinstance(action[1], DiceCounts)
+            assert all(hold <= die for hold, die in zip(action[1], self.dice))
+            self.dice = DiceCounts((0, 0, 0, 0, 0, 0))
+
+            # Score holds as we go to keep track of triples
+            self.hold_score += calc_score(action[1])
+            self.holds = hold_dice(self.holds, action[1])
+            if is_fill(self.holds):
+                self.reset_dice_and_holds()
+        elif action[0] == "stop":
+            self.game_score += self.hold_score
+            self.reset_for_new_turn()
+
+        # Exit early if we've taken too many turns
+        if self.num_turns > 60:
+            truncated = True
+            # reward = -10
+            self.num_turns_to_win.append(None)
+
+        # Give a reward if we've reached the max score
+        if self.game_score >= self.score_needed_to_win:
+            reward = 10000 / self.num_turns**2
+            terminated = True
+            self.num_turns_to_win.append(self.num_turns)
+
+        self.rewards.append(reward)
+        self.turn_length += 1
+        return self._get_obs(), reward, terminated, truncated, {}
+
+    def reset_dice_and_holds(self) -> None:
+        self.dice = DiceCounts((0, 0, 0, 0, 0, 0))
+        self.holds = DiceCounts((0, 0, 0, 0, 0, 0))
+        self.hold_score = 0
+        self.turn_length = 0
+
+    def reset_for_new_turn(self) -> None:
         self.num_turns += 1
-        self.turn_score = 0
-        self._reset_dice_holds_and_card()
+        self.turn_scores.append(self.hold_score)
+        self.turn_lengths.append(self.turn_length)
+        self.reset_dice_and_holds()
 
-    def _reset_dice(self) -> None:
-        self.dice = ()
+    def _reset_for_new_game(self) -> None:
+        self.hold_score = 0
+        self.turn_length = 0
+        self.game_score = 0
+        self.num_turns = 0
+        self.reset_for_new_turn()
+        self._steps.append("NEW GAME")
 
-    def _reset_dice_holds_and_card(self) -> None:
-        self.dice = ()
-        self.holds = ()
-        if self.card and self.card.category == "no_dice":
-            self.discard[self.card] += 1
-        self.card = None
+    def reset_for_new_game(self) -> tuple[Observation, dict]:
+        self._reset_for_new_game()
+        return self._get_obs(), {}
 
-    @property
-    def num_dice_remaining(self) -> int:
-        return Game.NUM_DICE - sum(self.holds)
-
-    @property
-    def state(self) -> State:
-        return State(
-            card=self.card,
-            turn_score=self.turn_score,
-            dice=self.dice,
-            holds=self.holds,
+    def _get_obs(self) -> Observation:
+        return Observation(
+            self.hold_score,
+            self.dice,
         )
-
-    @property
-    def stopped(self) -> bool:
-        return self.banked_score > 0
-
-    @property
-    def busted(self) -> bool:
-        def no_pointers_on_dice(dice: tuple[int, ...]) -> bool:
-            counts = count_dice(dice)
-            return (counts[0] + counts[4]) == 0 and max(counts) < 3
-
-        return sum(self.dice) > 0 and no_pointers_on_dice(self.dice)
-
-    def roll_dice(self, num_dice: int) -> tuple[int, ...]:
-        return tuple(sorted((random.randint(1, 6) for _ in range(num_dice))))
-
-    @classmethod
-    def calc_score(cls, dice: tuple[int, ...]) -> int:
-        assert len(dice), "Can't score empty dice"
-
-        # Check for a straight
-        if sorted(dice) == Game.STRAIGHT_DICE:
-            return 1500
-
-        # Check for triples and singles
-        counts = count_dice(dice)
-        score = 0
-        for die, count in enumerate(counts, start=1):
-            if count == 6:
-                return 2 * Game.TRIPLE_VALUES[die]
-            elif count >= 3:
-                score += Game.TRIPLE_VALUES[die]
-
-            # Check for any single pointers
-            if die == 1:
-                score += 100 * (count % 3)
-            elif die == 5:
-                score += 50 * (count % 3)
-        return score
-
-    def handle_action(self, action: ActionT) -> None:
-        if action == "draw":
-            response = self.handle_draw()
-        elif action == "roll":
-            response = self.handle_roll()
-        elif action.startswith("hold"):
-            response = self.handle_hold(action)  # type: ignore
-        elif action == "stop":
-            response = self.handle_stop()
-        else:
-            raise UnknownActionError(action)
-
-        # Record the state before cleaning up after the action
-        self.state_before_action_cleanup.append(str(self.state))
-        if action == "draw":
-            self.history.append(f"{action}: {self.card}")
-        elif action == "roll":
-            dice = "".join(map(str, self.dice))
-            self.history.append(f"{action}: {dice} ({len(dice)} dice)")
-        else:
-            self.history.append(action)
-
-        if response:
-            response()
-
-    def handle_draw(self) -> Callable | None:
-        self.card = self.deck.draw()
-        if self.card.category == "no_dice":
-            # TODO: No Dice cards never get recorded in state, fix this
-            # Must record the state somehow before it gets reset.
-            # Otherwise the Agent never sees the state that occurs
-            # directly after the action.
-            self.turn_score = 0
-            return self._start_new_turn
-
-    def handle_roll(self) -> Callable | None:
-        self.dice = self.roll_dice(self.num_dice_remaining)
-        if self.busted:
-            return self.handle_bust()
-
-    def handle_hold(self, hold_action: ActionT) -> Callable | None:
-        assert hold_action is not None
-
-        # Add the new held dice from this roll to the turn's held dice
-        # Also remove the held dice from `self.dice`
-        counts = tuple(map(int, hold_action.split("_")[-1]))
-        dice = [
-            die for num, count in enumerate(counts, start=1) for die in count * (num,)
-        ]
-
-        # Compute the incremental turn score (to deal with triples same roll requirement)
-        # TODO: Just store the holds incrementally, don't calc the score each time
-        self.turn_score += self.calc_score(dice)  # type:ignore
-        if self.holds:
-            self.holds = tuple(hold + count for hold, count in zip(self.holds, counts))
-        else:
-            self.holds = counts
-
-        if sum(self.holds) == self.NUM_DICE:
-            return self.handle_fill()
-        return self._reset_dice  # Reset dice to indicate we're ready to roll again
-
-    def handle_stop(self) -> Callable:
-        self.banked_score += self.turn_score
-        self.turn_scores.append(self.turn_score)
-        return self._start_new_turn
-
-    def handle_bust(self, history: str = "bust") -> Callable:
-        self.history.append(history)
-        self.turn_score = 0
-        return self._start_new_turn
-
-    def handle_fill(self) -> Callable:
-        self.history.append("fill")
-        if self.card and self.card.bonus:
-            self.turn_score += self.card.bonus
-        return self._reset_dice_holds_and_card
-
-    @property
-    def turn_is_over(self) -> bool:
-        return self.stopped or self.busted
-
-    @property
-    def game_is_over(self) -> bool:
-        return self.banked_score >= self.max_score

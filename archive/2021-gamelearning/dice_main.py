@@ -1,52 +1,45 @@
-from dice.agents import Agent, Smart, StopAtNDice
-from dice.q import QTable
+from tqdm import tqdm
+
+from dice.agents import Agent
+from dice.game import FillOrBustEnvironment, determine_available_actions
 
 
 def main() -> None:
-    print("Start!")
+    # hyperparameters
+    n_episodes = 10000
+    learning_rate = 0.01
+    start_epsilon = 1.0
+    epsilon_decay = start_epsilon / (n_episodes / 2)  # reduce the exploration over time
+    final_epsilon = 0.1
 
-    # Train the smart agent
-    smart = Smart(
-        "smart",
-        Q=QTable(
-            learning_rate=0.3,
-            discount_factor=0.5,
-            epsilon=0.95,
-        ),
-        learning_rate_decay=0.6,
-        discount_factor_decay=1.05,
+    agent = Agent(
+        learning_rate=learning_rate,
+        initial_epsilon=start_epsilon,
+        epsilon_decay=epsilon_decay,
+        final_epsilon=final_epsilon,
     )
 
-    agents: list[Agent] = [
-        smart,
-        # agent_with_estimator,
-        # Agent("dumb "),
-        # RiskyAgent("risky"),
-        # StopAtNDice("stop2", num_dice_to_stop_at=2),
-        # StopAtNDice("stop3", num_dice_to_stop_at=3),
-    ]
+    env = FillOrBustEnvironment()
 
-    NUM_TRAIN_GAMES = 1000
-    if smart in agents:
-        smart.train(
-            num_episodes=NUM_TRAIN_GAMES, max_score=10_000, evaluate=True, verbose=True
-        )
+    for episode in tqdm(range(n_episodes)):
+        obs, info = env.reset_for_new_game()
+        done = False
 
-    # Evaluate the agents
-    NUM_TEST_GAMES = 1_000
-    for agent in agents:
-        print(f"{agent.name=}")
-        for _ in range(NUM_TEST_GAMES):
-            agent.play(max_score=10_000, verbose=False)
-        agent.print_performance()
+        # play one episode
+        while not done:
+            action = agent.get_action(obs)
+            next_obs, reward, terminated, truncated, info = env.step(action)
 
-    if smart.evaluations:
-        smart.plot_evaluations()
+            # update the agent
+            agent.update(obs, action, reward, terminated, next_obs)
 
-    # if NUM_TRAIN_GAMES >= 25_000:
-    # smart.save(
-    #     f"./dice/trained_agents/trained_agent_{int(time.time())}_{NUM_TRAIN_GAMES}.pkl"
-    # )
+            # update if the environment is done and the current obs
+            done = terminated or truncated
+            obs = next_obs
+
+        agent.decay_epsilon()
+
+    print("Done training!")
 
 
 if __name__ == "__main__":
