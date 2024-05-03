@@ -80,7 +80,7 @@ def determine_hold_options_from_dice(dice: DiceCounts) -> list[DiceCounts]:
         if count and die in [1, 5]:
             options[die] += tuple(range(count + 1))
 
-    # Translate dice options to "hold_" strings
+    # Translate dice options to holds
     holds = product(*options.values())
     holds = set(DiceCounts(item) for item in holds if item != ((0,) * NUM_DICE_IN_GAME))
     return sorted(holds)
@@ -91,7 +91,7 @@ def roll_dice(num_dice: int) -> DiceCounts:
     return DiceCounts(dice.count(die) for die in range(1, 7))  # type: ignore
 
 
-def hold_dice(current_holds, new_holds: DiceCounts) -> DiceCounts:
+def hold_dice(current_holds: DiceCounts, new_holds: DiceCounts) -> DiceCounts:
     return DiceCounts(
         old_hold + new_hold for old_hold, new_hold in zip(current_holds, new_holds)
     )
@@ -114,6 +114,7 @@ class FillOrBustEnvironment:
         self.rewards = []
         self.turn_scores = []
         self.turn_lengths = []
+        self.num_dice_at_stop = []
         self._reset_for_new_game()
 
     def step(self, action: ActionT) -> tuple[Observation, float, bool, bool, dict]:
@@ -122,7 +123,7 @@ class FillOrBustEnvironment:
         When end of episode is reached, you are responsible for calling :meth:`reset` to reset this environment's state.
 
         Args:
-            action (ActType): an action provided by the agent
+            action (ActionT): an action provided by the agent
 
         Returns:
             observation: this will be an element of the environment's :attr:`observation_space`.
@@ -158,17 +159,17 @@ class FillOrBustEnvironment:
                 self.reset_dice_and_holds()
         elif action[0] == "stop":
             self.game_score += self.hold_score
+            self.num_dice_at_stop.append(NUM_DICE_IN_GAME - sum(self.holds))
             self.reset_for_new_turn()
 
         # Exit early if we've taken too many turns
-        if self.num_turns > 60:
+        if self.num_turns > 65:
             truncated = True
-            # reward = -10
             self.num_turns_to_win.append(None)
 
         # Give a reward if we've reached the max score
         if self.game_score >= self.score_needed_to_win:
-            reward = 10000 / self.num_turns**2
+            reward = 1000 / self.num_turns
             terminated = True
             self.num_turns_to_win.append(self.num_turns)
 
