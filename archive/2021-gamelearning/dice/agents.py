@@ -2,7 +2,7 @@
 from collections import defaultdict
 import random
 
-from dice.game import determine_available_actions
+from dice.game import determine_available_actions, NUM_DICE_IN_GAME
 from dice.types import ActionT, Observation
 
 
@@ -19,11 +19,27 @@ class Agent:
         return random.choice(determine_available_actions(obs))
 
 
+class StopAtNDiceAgent(Agent):
+    def __init__(self, name: str, num_dice_to_stop_at: int) -> None:
+        """
+        Initialize an agent that will stop rolling at a certain number of dice.
+        """
+        super().__init__(name)
+        self.num_dice_to_stop_at = num_dice_to_stop_at
+
+    def get_action(self, obs: Observation) -> ActionT:
+        if (NUM_DICE_IN_GAME - obs.num_held_dice) <= self.num_dice_to_stop_at:
+            return ("stop", None)
+        return super().get_action(obs)
+
+
 class SmartAgent(Agent):
     def __init__(
         self,
         name: str,
-        learning_rate: float,
+        initial_learning_rate: float,
+        learning_rate_decay: float,
+        final_learning_rate: float,
         initial_epsilon: float,
         epsilon_decay: float,
         final_epsilon: float,
@@ -43,7 +59,9 @@ class SmartAgent(Agent):
         self.q_values: dict[Observation, dict[ActionT, float]] = defaultdict(
             lambda: defaultdict(float)
         )
-        self.lr = learning_rate
+        self.lr = initial_learning_rate
+        self.lr_decay = learning_rate_decay
+        self.final_lr = final_learning_rate
         self.discount_factor = discount_factor
 
         self.epsilon = initial_epsilon
@@ -94,5 +112,8 @@ class SmartAgent(Agent):
         self.q_values[obs][action] = current_q_value + self.lr * temporal_difference
         self.training_error.append(temporal_difference)
 
-    def decay_epsilon(self):
+    def decay_epsilon(self) -> None:
         self.epsilon = max(self.final_epsilon, self.epsilon - self.epsilon_decay)
+
+    def decay_learning_rate(self) -> None:
+        self.lr = max(self.final_lr, self.lr - self.lr_decay)

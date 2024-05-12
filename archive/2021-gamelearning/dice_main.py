@@ -1,26 +1,37 @@
+import altair as alt
+import pandas as pd
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+import numpy as np
 
-from dice.agents import Agent
+from dice.agents import Agent, SmartAgent
 from dice.game import FillOrBustEnvironment, determine_available_actions
+
+alt.data_transformers.enable("vegafusion")
 
 
 def main() -> None:
     # hyperparameters
-    n_episodes = 10000
-    learning_rate = 0.01
+    n_episodes = 10_000
+    learning_rate = 0.5
     start_epsilon = 1.0
-    epsilon_decay = start_epsilon / (n_episodes / 2)  # reduce the exploration over time
-    final_epsilon = 0.1
+    epsilon_decay = start_epsilon / (
+        n_episodes // 1.5
+    )  # reduce the exploration over time
+    final_epsilon = 0.7
+    discount_factor = 1.0
 
-    agent = Agent(
+    # agent = Agent("dumb")
+    agent = SmartAgent(
+        "smart",
         learning_rate=learning_rate,
         initial_epsilon=start_epsilon,
         epsilon_decay=epsilon_decay,
         final_epsilon=final_epsilon,
+        discount_factor=discount_factor,
     )
 
     env = FillOrBustEnvironment()
-
     for episode in tqdm(range(n_episodes)):
         obs, info = env.reset_for_new_game()
         done = False

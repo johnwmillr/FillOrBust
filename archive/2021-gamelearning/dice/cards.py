@@ -7,13 +7,19 @@ GardenVarietyBonusT = Literal[300, 400, 500]
 
 class Card:
 
-    def __init__(
-        self, title: str, category: str, bonus: int | None, must_fill: bool
-    ) -> None:
+    def __init__(self, title: str, category: str, bonus: int, must_fill: bool) -> None:
         self.title = title
         self.category = category
         self.bonus = bonus
         self.must_fill = must_fill
+
+    def __eq__(self, other: "Card") -> bool:
+        if not isinstance(other, Card):
+            return False
+        return self.title == other.title
+
+    def __hash__(self) -> int:
+        return hash(self.title)
 
     def __lt__(self, other: "Card") -> bool:
         return self.title < other.title
@@ -25,6 +31,8 @@ class Card:
         string = self.category
         if self.category == "garden_variety":
             string += f"_{self.bonus}"
+        if self.must_fill:
+            string += "_must-fill"
         return string
 
     def __repr__(self) -> str:
@@ -32,7 +40,7 @@ class Card:
 
 
 def make_a_no_dice_card() -> Card:
-    return Card(title="No Dice!", category="no_dice", bonus=None, must_fill=False)
+    return Card(title="No Dice!", category="no_dice", bonus=0, must_fill=False)
 
 
 def make_a_fill_1000() -> Card:
@@ -40,7 +48,7 @@ def make_a_fill_1000() -> Card:
 
 
 def make_a_bonus_card(bonus: GardenVarietyBonusT) -> Card:
-    assert bonus in [300, 400, 500]
+    # assert bonus in [300, 400, 500]
     return Card(
         title=f"Bonus {bonus}", category="garden_variety", bonus=bonus, must_fill=False
     )

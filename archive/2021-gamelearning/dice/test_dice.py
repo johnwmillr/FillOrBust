@@ -1,5 +1,7 @@
+from unittest.mock import patch
 import pytest
 
+from dice.cards import GardenVarietyBonusT, make_a_bonus_card, make_a_fill_1000
 from dice.game import (
     DiceCounts,
     calc_score,
@@ -7,8 +9,43 @@ from dice.game import (
     determine_available_actions,
     determine_hold_options_from_dice,
     is_fill,
+    roll_dice,
 )
 from dice.types import ActionT, Observation
+
+
+# ------------------------------ #
+# Test the `roll_dice` function
+# ------------------------------ #
+@pytest.mark.parametrize(
+    ["dice", "expected_counts"],
+    [
+        ([1, 2, 3, 4, 5, 6], (1, 1, 1, 1, 1, 1)),
+        ([1, 1, 1, 1, 1, 1], (6, 0, 0, 0, 0, 0)),
+        ([1, 1, 1], (3, 0, 0, 0, 0, 0)),
+    ],
+)
+def test_roll_dice(dice: list[int], expected_counts: DiceCounts) -> None:
+    with patch("dice.game.random.randint", side_effect=dice):
+        assert roll_dice(len(dice)) == expected_counts
+
+
+# --------------------------- #
+# Test the `is_fill` function
+# --------------------------- #
+@pytest.mark.parametrize(
+    ["hold", "expected"],
+    [
+        (DiceCounts((1, 1, 1, 1, 1, 1)), True),
+        (DiceCounts((1, 1, 1, 1, 1, 0)), False),
+        (DiceCounts((6, 0, 0, 0, 0, 0)), True),
+        (DiceCounts((5, 0, 0, 0, 0, 0)), False),
+        (DiceCounts((1, 0, 0, 0, 0, 0)), False),
+        (DiceCounts((1, 2, 0, 0, 0, 0)), False),
+    ],
+)
+def test_is_fill(hold: DiceCounts, expected: bool) -> None:
+    assert is_fill(hold) == expected
 
 
 # ------------------------------ #
@@ -129,45 +166,31 @@ def test_determine_hold_options_from_dice(
     assert actual == sorted(expected_holds)
 
 
-# -------------------------------------------------------------------------- #
-# Test the `is_fill` function
-# -------------------------------------------------------------------------- #
-@pytest.mark.parametrize(
-    ["hold", "expected"],
-    [
-        (DiceCounts((1, 1, 1, 1, 1, 1)), True),
-        (DiceCounts((1, 1, 1, 1, 1, 0)), False),
-        (DiceCounts((6, 0, 0, 0, 0, 0)), True),
-        (DiceCounts((5, 0, 0, 0, 0, 0)), False),
-        (DiceCounts((1, 0, 0, 0, 0, 0)), False),
-        (DiceCounts((1, 2, 0, 0, 0, 0)), False),
-    ],
-)
-def test_is_fill(hold: DiceCounts, expected: bool) -> None:
-    assert is_fill(hold) == expected
-
-
 # ---------------------------------- #
 # Test `determine_available_actions`
 # ---------------------------------- #
-# These parameterized tests seem pretty hard to read
+# These parameterized tests are pretty hard to read
 @pytest.mark.parametrize(
     ["obs", "expected"],
     [
         (
-            Observation(0, DiceCounts((0, 0, 0, 0, 0, 0))),
+            Observation(0, 0, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
             [("roll", None)],
         ),
         (
-            Observation(0, DiceCounts((1, 0, 0, 0, 0, 0))),
+            Observation(0, 0, DiceCounts((1, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
             [("hold", DiceCounts((1, 0, 0, 0, 0, 0)))],
         ),
         (
-            Observation(100, DiceCounts((0, 0, 0, 0, 0, 0))),
+            Observation(100, 1, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
             [("roll", None), ("stop", None)],
         ),
         (
-            Observation(0, DiceCounts((0, 3, 0, 0, 1, 0))),
+            Observation(100, 2, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_fill_1000()),
+            [("roll", None)],
+        ),
+        (
+            Observation(0, 0, DiceCounts((0, 3, 0, 0, 1, 0)), make_a_bonus_card(300)),
             [
                 ("hold", DiceCounts((0, 3, 0, 0, 0, 0))),
                 ("hold", DiceCounts((0, 3, 0, 0, 1, 0))),
@@ -175,12 +198,21 @@ def test_is_fill(hold: DiceCounts, expected: bool) -> None:
             ],
         ),
         (
-            Observation(350, DiceCounts((0, 0, 0, 0, 0, 0))),
+            Observation(350, 4, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
             [("roll", None), ("stop", None)],
         ),
         (
-            Observation(0, DiceCounts((0, 0, 0, 0, 0, 0))),
+            Observation(0, 0, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
             [("roll", None)],
+        ),
+        (
+            Observation(0, 0, DiceCounts((0, 0, 0, 0, 0, 0)), None),
+            [("draw", None)],
+        ),
+        (
+            # Test the scenario where we have a must-fill card and we've filled and can either stop or draw a new card
+            Observation(1500, 6, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_fill_1000()),
+            [("draw", None), ("stop", None)],
         ),
     ],
 )
@@ -188,53 +220,29 @@ def test_determine_available_actions(obs: Observation, expected: list[ActionT]) 
     assert determine_available_actions(obs) == sorted(expected)
 
 
-# def test_drawing_garden_variety_enables_roll(self) -> None:
-#     game = Game()
-#     game.card = make_a_bonus_card(300)
-#     self._test_available_actions(game, ["roll"])
+@pytest.mark.parametrize(
+    ["dice", "bonus", "expected_score"],
+    [
+        (DiceCounts((2, 3, 0, 0, 1, 0)), 300, 750),
+        (DiceCounts((1, 2, 1, 1, 0, 1)), 300, 400),
+        (DiceCounts((0, 3, 1, 1, 0, 1)), 500, 700),
+        (DiceCounts((2, 2, 0, 0, 1, 0)), 300, 250),  # No fill
+        (DiceCounts((1, 2, 0, 1, 0, 1)), 300, 100),  # No fill
+        (DiceCounts((0, 3, 1, 1, 0, 0)), 500, 200),  # No fill
+    ],
+)
+def test_garden_variety_bonus_only_gets_applied_with_fill(
+    dice: DiceCounts,
+    bonus: GardenVarietyBonusT,
+    expected_score: int,
+    game: FillOrBustEnvironment,
+) -> None:
+    game.card = make_a_bonus_card(bonus)
 
-
-# def test_rolling_pointers_enables_holds(self) -> None:
-#     game = Game()
-#     game.card = make_a_bonus_card(300)
-#     game.dice = [1, 1, 2, 2, 5]
-#     self._test_available_actions(
-#         game,
-#         [
-#             "hold_100000",
-#             "hold_200000",
-#             "hold_000010",
-#             "hold_100010",
-#             "hold_200010",
-#         ],  # type:ignore
-#     )
-
-
-# def test_holding_dice_enables_roll_or_stop(self) -> None:
-#     game = Game()
-#     game.card = make_a_bonus_card(300)
-#     game.dice = [1, 1, 2, 2, 5]
-#     game.handle_action("hold_200000")  # type:ignore
-#     self._test_available_actions(game, ["roll", "stop"])
-#     self.assertEqual(game.turn_score, 200)
-
-
-# def test_filling_enables_draw_or_stop(self) -> None:
-#     game = Game()
-#     game.card = make_a_bonus_card(300)
-#     game.handle_action("hold_111111")  # type:ignore
-#     self._test_available_actions(game, ["draw", "stop"])
-#     self.assertEqual(game.turn_score, 1800)
-#     self.assertEqual(game.banked_score, 0)
-
-
-# def test_fill_1000_prevents_stopping_until_filled(self) -> None:
-#     game = Game()
-#     game.card = make_a_fill_1000()
-#     game.handle_action("hold_100000")  # type:ignore
-#     self._test_available_actions(game, ["roll"])
-#     game.handle_action("hold_000050")  # type:ignore
-#     self._test_available_actions(game, ["draw", "stop"])
+    game.dice = dice
+    game.step(("hold", dice))
+    game.step(("stop", None))
+    assert game.game_score == expected_score
 
 
 # ---------------------------- #
@@ -246,45 +254,3 @@ def test_determine_available_actions(obs: Observation, expected: list[ActionT]) 
 #     previous_state = game.state
 #     game.handle_action("draw")
 #     assert previous_state != game.state
-
-
-# class TestCardRequirements(unittest.TestCase):
-#     agent = Agent("tester")
-
-#     def test_garden_variety_bonus_gets_applied_to_fill(self) -> None:
-#         game = Game()
-#         game.card = make_a_bonus_card(300)
-#         game.dice = [1, 1, 2, 2, 2, 5]
-#         game.handle_action("hold_230010")  # type:ignore
-#         game.handle_action("stop")
-#         self.assertEqual(game.banked_score, 750)
-
-#     def test_garden_variety_allows_stopping(self) -> None:
-#         game = Game()
-#         game.card = make_a_bonus_card(300)
-#         game.dice = [1, 1, 2, 2, 3, 5]
-#         game.handle_action("hold_100000")  # type:ignore
-#         available_actions = sorted(self.agent.determine_available_actions(game.state))
-#         expected_actions = ["roll", "stop"]
-#         self.assertEqual(available_actions, expected_actions)
-#         game.handle_action("stop")
-#         self.assertEqual(game.banked_score, 100)
-
-#     def test_fill_1000_requires_fill(self) -> None:
-#         game = Game()
-#         game.card = make_a_fill_1000()
-#         game.dice = [1, 1, 2, 2, 3, 5]
-#         game.handle_action("hold_100000")  # type:ignore
-#         available_actions = self.agent.determine_available_actions(game.state)
-#         expected_actions = ["roll"]
-#         self.assertEqual(available_actions, expected_actions)
-
-#     def test_no_dice_ends_turn(self) -> None:
-#         game = Game()
-#         game.card = make_a_bonus_card(300)
-#         game.dice = [1, 1, 2, 2, 2, 5]
-#         game.handle_action("hold_230010")  # type:ignore
-#         game.deck.cards = [make_a_no_dice_card()]
-#         game.handle_action("draw")
-#         self.assertEqual(game.history[-2], "draw: no_dice")
-#         self.assertEqual(game.banked_score, 0)

@@ -3,10 +3,17 @@ from itertools import product
 import random
 
 from dice.types import ActionT, DiceCounts, Observation
-
+from dice.cards import Card, Deck
 
 NUM_DICE_IN_GAME = 6
 TRIPLE_VALUES = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
+
+
+deck = Deck()
+
+
+def draw_card() -> Card:
+    return deck.draw()
 
 
 def calc_score(dice: DiceCounts) -> int:
@@ -40,11 +47,25 @@ def determine_available_actions(obs: Observation) -> list[ActionT]:
     """
     options: list[ActionT] = []
 
+    if obs.card is None:
+        # No card, must draw
+        options.append(("draw", None))
+        return options
+
+    if obs.num_held_dice == NUM_DICE_IN_GAME:
+        # Filled, must either draw or stop
+        options.extend([("draw", None), ("stop", None)])
+        return options
+
     # No rolled dice to act on
     if sum(obs.dice) == 0:
         # No just-rolled dice, could roll
         options.append(("roll", None))
-        if obs.hold_score > 0:
+        if (
+            obs.hold_score > 0
+            and not obs.card.must_fill
+            or obs.num_held_dice == NUM_DICE_IN_GAME
+        ):
             # Have held some dice, could stop
             options.append(("stop", None))
         return options
@@ -105,6 +126,17 @@ def is_fill(held_dice: DiceCounts) -> bool:
     return sum(held_dice) == NUM_DICE_IN_GAME
 
 
+def convert_num_turns_to_reward(num_turns: int) -> float:
+    reward = 1000 / num_turns - 15
+    return min(max(reward, -2.5), 15)
+    max_value = 85
+    min_value = 55
+    scaled_num_turns = -1 * (
+        ((num_turns - min_value) / (max_value - min_value)) * 2 - 1
+    )
+    return min(max(-1.5, scaled_num_turns), 2)
+
+
 # https://gymnasium.farama.org/tutorials/training_agents/blackjack_tutorial/
 class FillOrBustEnvironment:
     def __init__(self, score_needed_to_win: int = 10_000) -> None:
@@ -143,9 +175,15 @@ class FillOrBustEnvironment:
         self._steps.append((self._get_obs(), action))
         reward = 0
         terminated, truncated = False, False
-        if action[0] == "roll":
+        if action[0] == "draw":
+            self.card = draw_card()
+            if self.card.category == "no_dice":
+                # XXX: This hides the no dice card from ever being observed—is that okay?
+                self.reset_for_new_turn()
+        elif action[0] == "roll":
             self.dice = roll_dice(NUM_DICE_IN_GAME - sum(self.holds))
             if is_bust(self.dice):
+                self.hold_score = 0
                 self.reset_for_new_turn()
         elif action[0] == "hold":
             assert isinstance(action[1], DiceCounts)
@@ -156,38 +194,42 @@ class FillOrBustEnvironment:
             self.hold_score += calc_score(action[1])
             self.holds = hold_dice(self.holds, action[1])
             if is_fill(self.holds):
-                self.reset_dice_and_holds()
+                if self.card is not None:
+                    self.hold_score += self.card.bonus
+                self.reset_dice_and_holds_and_cards()  # XXX: hold_score shouldn't get reset here?
         elif action[0] == "stop":
             self.game_score += self.hold_score
             self.num_dice_at_stop.append(NUM_DICE_IN_GAME - sum(self.holds))
             self.reset_for_new_turn()
 
         # Exit early if we've taken too many turns
-        if self.num_turns > 65:
-            truncated = True
-            self.num_turns_to_win.append(None)
+        # if self.num_turns > 75:
+        #     truncated = True
+        #     self.num_turns_to_win.append(None)
+        #     reward = -2
 
         # Give a reward if we've reached the max score
         if self.game_score >= self.score_needed_to_win:
-            reward = 1000 / self.num_turns
             terminated = True
+            reward = convert_num_turns_to_reward(self.num_turns)
             self.num_turns_to_win.append(self.num_turns)
 
         self.rewards.append(reward)
         self.turn_length += 1
         return self._get_obs(), reward, terminated, truncated, {}
 
-    def reset_dice_and_holds(self) -> None:
+    def reset_dice_and_holds_and_cards(self) -> None:
         self.dice = DiceCounts((0, 0, 0, 0, 0, 0))
         self.holds = DiceCounts((0, 0, 0, 0, 0, 0))
-        self.hold_score = 0
-        self.turn_length = 0
+        self.card = None
 
     def reset_for_new_turn(self) -> None:
         self.num_turns += 1
         self.turn_scores.append(self.hold_score)
+        self.hold_score = 0
         self.turn_lengths.append(self.turn_length)
-        self.reset_dice_and_holds()
+        self.turn_length = 0
+        self.reset_dice_and_holds_and_cards()
 
     def _reset_for_new_game(self) -> None:
         self.hold_score = 0
@@ -204,5 +246,7 @@ class FillOrBustEnvironment:
     def _get_obs(self) -> Observation:
         return Observation(
             self.hold_score,
+            sum(self.holds),
             self.dice,
+            self.card,
         )
