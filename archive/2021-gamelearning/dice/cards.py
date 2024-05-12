@@ -48,10 +48,13 @@ def make_a_fill_1000() -> Card:
 
 
 def make_a_bonus_card(bonus: GardenVarietyBonusT) -> Card:
-    # assert bonus in [300, 400, 500]
     return Card(
         title=f"Bonus {bonus}", category="garden_variety", bonus=bonus, must_fill=False
     )
+
+
+def make_a_must_bust_card() -> Card:
+    return Card(title="Must Bust!", category="must_bust", bonus=0, must_fill=False)
 
 
 class EmptyDeckException(Exception):
@@ -64,6 +67,7 @@ class Deck:
     NUM_BONUS_300 = 12
     NUM_BONUS_400 = 10
     NUM_BONUS_500 = 8
+    NUM_MUST_BUST = 3
 
     def __init__(self) -> None:
         self._shuffle_new_deck()
@@ -75,6 +79,7 @@ class Deck:
         self.cards.extend(make_a_bonus_card(300) for _ in range(self.NUM_BONUS_300))
         self.cards.extend(make_a_bonus_card(400) for _ in range(self.NUM_BONUS_400))
         self.cards.extend(make_a_bonus_card(500) for _ in range(self.NUM_BONUS_500))
+        self.cards.extend(make_a_must_bust_card() for _ in range(self.NUM_MUST_BUST))
         self.shuffle()
 
     def shuffle(self) -> None:

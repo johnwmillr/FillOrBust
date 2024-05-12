@@ -1,7 +1,12 @@
 from unittest.mock import patch
 import pytest
 
-from dice.cards import GardenVarietyBonusT, make_a_bonus_card, make_a_fill_1000
+from dice.cards import (
+    GardenVarietyBonusT,
+    make_a_bonus_card,
+    make_a_fill_1000,
+    make_a_must_bust_card,
+)
 from dice.game import (
     DiceCounts,
     calc_score,
@@ -243,6 +248,14 @@ def test_garden_variety_bonus_only_gets_applied_with_fill(
     game.step(("hold", dice))
     game.step(("stop", None))
     assert game.game_score == expected_score
+
+
+def test_that_must_bust_preserves_the_score(game: FillOrBustEnvironment) -> None:
+    game.card = make_a_must_bust_card()
+    game.hold_score = 200
+    with patch("dice.game.roll_dice", return_value=DiceCounts((0, 1, 1, 1, 0, 0))):
+        game.step(("roll", None))
+        assert game.game_score == 200
 
 
 # ---------------------------- #

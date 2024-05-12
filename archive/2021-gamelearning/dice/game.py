@@ -54,7 +54,9 @@ def determine_available_actions(obs: Observation) -> list[ActionT]:
 
     if obs.num_held_dice == NUM_DICE_IN_GAME:
         # Filled, must either draw or stop
-        options.extend([("draw", None), ("stop", None)])
+        options.append(("draw", None))
+        if obs.card is not None and obs.card.category != "must_bust":
+            options.append(("stop", None))
         return options
 
     # No rolled dice to act on
@@ -183,7 +185,10 @@ class FillOrBustEnvironment:
         elif action[0] == "roll":
             self.dice = roll_dice(NUM_DICE_IN_GAME - sum(self.holds))
             if is_bust(self.dice):
-                self.hold_score = 0
+                if self.card is not None and self.card.category == "must_bust":
+                    self.game_score += self.hold_score
+                else:
+                    self.hold_score = 0
                 self.reset_for_new_turn()
         elif action[0] == "hold":
             assert isinstance(action[1], DiceCounts)
