@@ -11,6 +11,11 @@ ActionT = tuple[
 ]  # The action name and any accompanying info (e.g. ("roll", 4))
 
 
+class StepInfo(NamedTuple):
+    num_turns_to_win: list[int]
+    rewards: list[float]
+
+
 class Observation(NamedTuple):
     hold_score: int
     num_held_dice: int

@@ -175,6 +175,7 @@ def test_determine_hold_options_from_dice(
 # Test `determine_available_actions`
 # ---------------------------------- #
 # These parameterized tests are pretty hard to read
+# TODO: Use pytest.params to make this more readable
 @pytest.mark.parametrize(
     ["obs", "expected"],
     [
@@ -219,6 +220,12 @@ def test_determine_hold_options_from_dice(
             Observation(1500, 6, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_fill_1000()),
             [("draw", None), ("stop", None)],
         ),
+        (
+            Observation(
+                250, 5, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_must_bust_card()
+            ),
+            [("roll", None)],
+        ),
     ],
 )
 def test_determine_available_actions(obs: Observation, expected: list[ActionT]) -> None:
@@ -250,7 +257,9 @@ def test_garden_variety_bonus_only_gets_applied_with_fill(
     assert game.game_score == expected_score
 
 
-def test_that_must_bust_preserves_the_score(game: FillOrBustEnvironment) -> None:
+def test_that_must_bust_preserves_score_after_busting(
+    game: FillOrBustEnvironment,
+) -> None:
     game.card = make_a_must_bust_card()
     game.hold_score = 200
     with patch("dice.game.roll_dice", return_value=DiceCounts((0, 1, 1, 1, 0, 0))):

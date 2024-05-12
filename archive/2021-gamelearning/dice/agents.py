@@ -3,7 +3,7 @@ from collections import defaultdict
 import random
 
 from dice.game import determine_available_actions, NUM_DICE_IN_GAME
-from dice.types import ActionT, Observation
+from dice.types import ActionT, Observation, StepInfo
 
 
 class Agent:
@@ -69,6 +69,8 @@ class SmartAgent(Agent):
         self.final_epsilon = final_epsilon
 
         self.training_error: list[float] = []
+        self.num_turns_to_win: list[int] = []
+        self.rewards: list[float] = []
 
     def get_action(self, obs: Observation) -> ActionT:
         """
@@ -98,6 +100,7 @@ class SmartAgent(Agent):
         reward: float,
         terminated: bool,
         next_obs: Observation,
+        info: StepInfo | None = None,
     ):
         """Updates the Q-value of an action."""
         current_q_value = self.q_values[obs][action]
@@ -111,6 +114,11 @@ class SmartAgent(Agent):
         # Update the Q-value for this action
         self.q_values[obs][action] = current_q_value + self.lr * temporal_difference
         self.training_error.append(temporal_difference)
+
+        # Update the agent's training info
+        if info:
+            self.num_turns_to_win.extend(info.num_turns_to_win)
+            self.rewards.extend(info.rewards)
 
     def decay_epsilon(self) -> None:
         self.epsilon = max(self.final_epsilon, self.epsilon - self.epsilon_decay)
