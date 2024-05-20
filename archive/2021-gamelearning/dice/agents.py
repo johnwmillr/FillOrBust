@@ -2,13 +2,17 @@
 from collections import defaultdict
 import random
 
-from dice.game import determine_available_actions, NUM_DICE_IN_GAME
+from dice.game import determine_available_actions
 from dice.types import ActionT, Observation, StepInfo
 
 
 class Agent:
     def __init__(self, name: str) -> None:
         self.name = name
+        self.num_turns: list[int] = []
+        self.rewards: list[float] = []
+        self.game_scores: list[int] = []
+        self.wins = 0
 
     def get_action(self, obs: Observation) -> ActionT:
         """
@@ -17,6 +21,24 @@ class Agent:
         """
         # Explore (choose a random action)
         return random.choice(determine_available_actions(obs))
+
+    def update(
+        self,
+        obs: Observation,
+        action: ActionT,
+        reward: float,
+        terminated: bool,
+        turn_is_over: bool,
+        next_obs: Observation,
+        info: StepInfo | None = None,
+    ):
+        # Update the agent's training info
+        if info is None:
+            return
+
+        self.num_turns.append(info.num_turns)
+        self.rewards.append(info.reward)
+        self.game_scores.append(info.game_score)
 
 
 class StopAtNDiceAgent(Agent):
@@ -28,7 +50,7 @@ class StopAtNDiceAgent(Agent):
         self.num_dice_to_stop_at = num_dice_to_stop_at
 
     def get_action(self, obs: Observation) -> ActionT:
-        if (NUM_DICE_IN_GAME - obs.num_held_dice) <= self.num_dice_to_stop_at:
+        if obs.num_dice_remaining <= self.num_dice_to_stop_at:
             return ("stop", None)
         return super().get_action(obs)
 
@@ -69,8 +91,6 @@ class SmartAgent(Agent):
         self.final_epsilon = final_epsilon
 
         self.training_error: list[float] = []
-        self.num_turns_to_win: list[int] = []
-        self.rewards: list[float] = []
 
     def get_action(self, obs: Observation) -> ActionT:
         """
@@ -99,10 +119,13 @@ class SmartAgent(Agent):
         action: ActionT,
         reward: float,
         terminated: bool,
+        turn_is_over: bool,
         next_obs: Observation,
         info: StepInfo | None = None,
     ):
         """Updates the Q-value of an action."""
+        super().update(obs, action, reward, terminated, turn_is_over, next_obs, info)
+
         current_q_value = self.q_values[obs][action]
         future_q_value = (not terminated) * max(
             self.q_values[next_obs].values(), default=0.0
@@ -114,11 +137,6 @@ class SmartAgent(Agent):
         # Update the Q-value for this action
         self.q_values[obs][action] = current_q_value + self.lr * temporal_difference
         self.training_error.append(temporal_difference)
-
-        # Update the agent's training info
-        if info:
-            self.num_turns_to_win.extend(info.num_turns_to_win)
-            self.rewards.extend(info.rewards)
 
     def decay_epsilon(self) -> None:
         self.epsilon = max(self.final_epsilon, self.epsilon - self.epsilon_decay)

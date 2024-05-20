@@ -1,18 +1,18 @@
 from tqdm import tqdm
 
 from dice.agents import Agent, SmartAgent
-from dice.game import FillOrBustEnvironment, determine_available_actions
+from dice.game import FillOrBustEnvironment
 
 
 def main() -> None:
-    n_episodes = 1000
-    start_learning_rate = 0.01
+    n_episodes = 5000
+    start_learning_rate = 0.0001
     lr_decay = start_learning_rate / (n_episodes // 2)
-    final_lr = 0.001
+    final_lr = 0.0001
     start_epsilon = 1.0
-    epsilon_decay = start_epsilon / (n_episodes // 1.5)
+    epsilon_decay = start_epsilon / (n_episodes // 2)
     final_epsilon = 0.1
-    discount_factor = 0.5
+    discount_factor = 0.7
 
     kwargs = dict(
         initial_learning_rate=start_learning_rate,
@@ -25,7 +25,12 @@ def main() -> None:
     )
 
     agent1 = SmartAgent("agent1", **kwargs)
-    agent2 = SmartAgent("agent2", **kwargs)
+    # agent2 = SmartAgent("agent2", **kwargs)
+
+    # agent1 = Agent("agent1")
+    agent2 = Agent("agent2")
+
+    agents = [agent1]
 
     env = FillOrBustEnvironment()
     for episode in tqdm(range(n_episodes)):
@@ -34,25 +39,27 @@ def main() -> None:
 
         # play one episode
         while not done:
-            for agent in [agent1]:
+            for agent in agents:
                 while not turn_is_over:
                     action = agent.get_action(obs)
-                    next_obs, reward, terminated, truncated, turn_is_over, _ = env.step(
-                        action
+                    next_obs, reward, terminated, truncated, turn_is_over, info = (
+                        env.step(action)
                     )
 
-                    # update the agent
-                    agent.update(obs, action, reward, terminated, next_obs)
+                    agent.update(
+                        obs, action, reward, terminated, turn_is_over, next_obs, info
+                    )
 
-                    # update if the environment is done and the current obs
                     done = terminated or truncated
                     obs = next_obs
-                obs, _ = env.reset_for_new_turn()
                 turn_is_over = False
+                if done:
+                    break
 
-        for agent in [agent1, agent2]:
-            agent.decay_epsilon()
-            agent.decay_learning_rate()
+        for agent in agents:
+            if isinstance(agent, SmartAgent):
+                agent.decay_epsilon()
+                agent.decay_learning_rate()
 
     print("Done training!")
 

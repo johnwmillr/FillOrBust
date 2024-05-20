@@ -59,23 +59,24 @@ def test_is_fill(hold: DiceCounts, expected: bool) -> None:
 @pytest.mark.parametrize(
     ["dice", "expected_score"],
     [
-        (
+        pytest.param(
             (1, 1, 1, 1, 1, 1),
             1500,
-        ),  # Straight
-        ((0, 3, 0, 0, 0, 0), 200),  # Three 2's
-        ((0, 6, 0, 0, 0, 0), 400),  # Six 2's
-        ((0, 0, 3, 0, 0, 3), 900),  # Three 3's, Three 6's
-        ((1, 0, 0, 0, 0, 0), 100),  # One 1
-        ((2, 0, 0, 0, 0, 0), 200),  # Two 1's
-        ((0, 0, 0, 0, 1, 0), 50),  # One 5
-        ((0, 0, 0, 0, 2, 0), 100),  # Two 5's
-        ((0, 0, 0, 0, 4, 0), 550),  # Four 5's
-        ((4, 0, 0, 0, 0, 0), 1100),  # Four 1's
-        ((0, 0, 0, 0, 0, 5), 600),  # Five 6's
-        ((0, 1, 1, 2, 0, 2), 0),  # Bust
-        ((1, 2, 0, 2, 1, 0), 150),  # One 1, one 5
-        ((2, 0, 1, 2, 0, 0), 200),  # Two 1's
+            id="Straight",
+        ),
+        pytest.param((0, 3, 0, 0, 0, 0), 200, id="Three 2's"),
+        pytest.param((0, 6, 0, 0, 0, 0), 400, id="Six 2's"),
+        pytest.param((0, 0, 3, 0, 0, 3), 900, id="Three 3's, Three 6's"),
+        pytest.param((1, 0, 0, 0, 0, 0), 100, id="One 1"),
+        pytest.param((2, 0, 0, 0, 0, 0), 200, id="Two 1's"),
+        pytest.param((0, 0, 0, 0, 1, 0), 50, id="One 5"),
+        pytest.param((0, 0, 0, 0, 2, 0), 100, id="Two 5's"),
+        pytest.param((0, 0, 0, 0, 4, 0), 550, id="Four 5's"),
+        pytest.param((4, 0, 0, 0, 0, 0), 1100, id="Four 1's"),
+        pytest.param((0, 0, 0, 0, 0, 5), 600, id="Five 6's"),
+        pytest.param((0, 1, 1, 2, 0, 2), 0, id="Bust"),
+        pytest.param((1, 2, 0, 2, 1, 0), 150, id="One 1, one 5"),
+        pytest.param((2, 0, 1, 2, 0, 0), 200, id="Two 1's"),
     ],
 )
 def test_calc_score(dice: DiceCounts, expected_score: int) -> None:
@@ -97,6 +98,166 @@ def test_same_roll_requirement_for_triples(
     game.step(("hold", DiceCounts((1, 0, 0, 0, 0, 0))))
     game.step(("stop", None))
     assert game.game_score == expected_score
+
+
+# ---------------------------------- #
+# Test `determine_available_actions`
+# ---------------------------------- #
+# These parameterized tests are pretty hard to read
+# TODO: Use pytest.params to make this more readable
+@pytest.mark.parametrize(
+    ["obs", "expected"],
+    [
+        pytest.param(
+            Observation(
+                0,
+                6,
+                DiceCounts((0, 0, 0, 0, 0, 0)),
+                make_a_bonus_card(300),
+                False,
+            ),
+            [("roll", None)],
+            id="Drew a card, haven't rolled.",
+        ),
+        pytest.param(
+            Observation(
+                0,
+                6,
+                DiceCounts((1, 0, 0, 0, 0, 0)),
+                make_a_bonus_card(300),
+                False,
+            ),
+            [("hold", DiceCounts((1, 0, 0, 0, 0, 0)))],
+            id="Rolled 1 one.",
+        ),
+        pytest.param(
+            Observation(
+                100,
+                5,
+                DiceCounts((0, 0, 0, 0, 0, 0)),
+                make_a_bonus_card(300),
+                False,
+            ),
+            [("roll", None), ("stop", None)],
+            id="Held dice, can either roll or stop.",
+        ),
+        pytest.param(
+            Observation(
+                100,
+                3,
+                DiceCounts((0, 0, 0, 0, 0, 0)),
+                make_a_fill_1000(),
+                False,
+            ),
+            [("roll", None)],
+            id="Drew a Fill 1000, must roll.",
+        ),
+        pytest.param(
+            Observation(
+                0,
+                6,
+                DiceCounts((2, 2, 2, 0, 0, 0)),
+                make_a_bonus_card(300),
+                False,
+            ),
+            [
+                ("hold", DiceCounts((1, 0, 0, 0, 0, 0))),
+                ("hold", DiceCounts((2, 0, 0, 0, 0, 0))),
+            ],
+            id="Rolled 2 ones.",
+        ),
+        pytest.param(
+            Observation(
+                150,
+                4,
+                DiceCounts((0, 3, 0, 0, 1, 0)),
+                make_a_bonus_card(300),
+                False,
+            ),
+            [
+                ("hold", DiceCounts((0, 3, 0, 0, 0, 0))),
+                ("hold", DiceCounts((0, 3, 0, 0, 1, 0))),
+                ("hold", DiceCounts((0, 0, 0, 0, 1, 0))),
+            ],
+            id="Rolled a triple two and 1 five.",
+        ),
+        pytest.param(
+            Observation(
+                350,
+                2,
+                DiceCounts((0, 0, 0, 0, 0, 0)),
+                make_a_bonus_card(300),
+                False,
+            ),
+            [("roll", None), ("stop", None)],
+            id="Holding dice, could roll or stop.",
+        ),
+        pytest.param(
+            Observation(
+                0,
+                6,
+                DiceCounts((0, 0, 0, 0, 0, 0)),
+                None,
+                False,
+            ),
+            [("draw", None)],
+            id="No card, must draw.",
+        ),
+        pytest.param(
+            Observation(
+                250,
+                1,
+                DiceCounts((0, 0, 0, 0, 0, 0)),
+                make_a_must_bust_card(),
+                False,
+            ),
+            [("roll", None)],
+            id="Must bust, must roll.",
+        ),
+        pytest.param(
+            Observation(
+                400,
+                2,
+                DiceCounts((2, 1, 1, 0, 0, 0)),
+                make_a_bonus_card(300),
+                True,
+            ),
+            [("inherit", True), ("inherit", False)],
+            id="Inheriting, must either inherit or pass.",
+        ),
+    ],
+)
+def test_determine_available_actions(obs: Observation, expected: list[ActionT]) -> None:
+    assert determine_available_actions(obs) == sorted(expected)
+
+
+# Test out that some patterns of moves result in the expected actions
+def test_inheritance_is_available_after_stopping(game: FillOrBustEnvironment) -> None:
+    game.card = make_a_bonus_card(300)
+    game.hold_score = 500
+    game.dice = DiceCounts((0, 2, 1, 0, 3, 0))
+    game.holds = DiceCounts((0, 0, 0, 0, 3, 0))
+    game.step(("stop", None))
+    game.game_score = 0  # Reset the game score for new player's turn
+    assert determine_available_actions(game._get_obs()) == [
+        ("inherit", False),
+        ("inherit", True),
+    ]
+    with patch("dice.game.draw_card", return_value=make_a_bonus_card(500)):
+        game.step(("inherit", True))
+        assert determine_available_actions(game._get_obs()) == [("roll", None)]
+        with patch("dice.game.roll_dice", return_value=DiceCounts((1, 1, 1, 0, 0, 0))):
+            game.step(("roll", None))
+            assert determine_available_actions(game._get_obs()) == [
+                ("hold", DiceCounts((1, 0, 0, 0, 0, 0)))
+            ]
+            game.step(("hold", DiceCounts((1, 0, 0, 0, 0, 0))))
+            assert determine_available_actions(game._get_obs()) == [
+                ("roll", None),
+                ("stop", None),
+            ]
+            game.step(("stop", None))
+            assert game.game_score == 600
 
 
 # ---------------------------------------------------- #
@@ -171,67 +332,9 @@ def test_determine_hold_options_from_dice(
     assert actual == sorted(expected_holds)
 
 
-# ---------------------------------- #
-# Test `determine_available_actions`
-# ---------------------------------- #
-# These parameterized tests are pretty hard to read
-# TODO: Use pytest.params to make this more readable
-@pytest.mark.parametrize(
-    ["obs", "expected"],
-    [
-        (
-            Observation(0, 0, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
-            [("roll", None)],
-        ),
-        (
-            Observation(0, 0, DiceCounts((1, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
-            [("hold", DiceCounts((1, 0, 0, 0, 0, 0)))],
-        ),
-        (
-            Observation(100, 1, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
-            [("roll", None), ("stop", None)],
-        ),
-        (
-            Observation(100, 2, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_fill_1000()),
-            [("roll", None)],
-        ),
-        (
-            Observation(0, 0, DiceCounts((0, 3, 0, 0, 1, 0)), make_a_bonus_card(300)),
-            [
-                ("hold", DiceCounts((0, 3, 0, 0, 0, 0))),
-                ("hold", DiceCounts((0, 3, 0, 0, 1, 0))),
-                ("hold", DiceCounts((0, 0, 0, 0, 1, 0))),
-            ],
-        ),
-        (
-            Observation(350, 4, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
-            [("roll", None), ("stop", None)],
-        ),
-        (
-            Observation(0, 0, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_bonus_card(300)),
-            [("roll", None)],
-        ),
-        (
-            Observation(0, 0, DiceCounts((0, 0, 0, 0, 0, 0)), None),
-            [("draw", None)],
-        ),
-        (
-            # Test the scenario where we have a must-fill card and we've filled and can either stop or draw a new card
-            Observation(1500, 6, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_fill_1000()),
-            [("draw", None), ("stop", None)],
-        ),
-        (
-            Observation(
-                250, 5, DiceCounts((0, 0, 0, 0, 0, 0)), make_a_must_bust_card()
-            ),
-            [("roll", None)],
-        ),
-    ],
-)
-def test_determine_available_actions(obs: Observation, expected: list[ActionT]) -> None:
-    assert determine_available_actions(obs) == sorted(expected)
-
-
+# ------------------- #
+# Test out some cards
+# ------------------- #
 @pytest.mark.parametrize(
     ["dice", "bonus", "expected_score"],
     [
