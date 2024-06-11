@@ -1,21 +1,20 @@
 from unittest.mock import patch
+
 import pytest
 
+from dice.agents import (
+    Agent,
+    determine_available_actions,
+    determine_hold_options_from_dice,
+)
 from dice.cards import (
+    Deck,
     GardenVarietyBonusT,
     make_a_bonus_card,
     make_a_fill_1000,
     make_a_must_bust_card,
 )
-from dice.game import (
-    DiceCounts,
-    calc_score,
-    FillOrBustEnvironment,
-    determine_available_actions,
-    determine_hold_options_from_dice,
-    is_fill,
-    roll_dice,
-)
+from dice.game import DiceCounts, FillOrBustEnvironment, calc_score, is_fill, roll_dice
 from dice.types import ActionT, Observation
 
 
@@ -41,12 +40,12 @@ def test_roll_dice(dice: list[int], expected_counts: DiceCounts) -> None:
 @pytest.mark.parametrize(
     ["hold", "expected"],
     [
-        (DiceCounts((1, 1, 1, 1, 1, 1)), True),
-        (DiceCounts((1, 1, 1, 1, 1, 0)), False),
-        (DiceCounts((6, 0, 0, 0, 0, 0)), True),
-        (DiceCounts((5, 0, 0, 0, 0, 0)), False),
-        (DiceCounts((1, 0, 0, 0, 0, 0)), False),
-        (DiceCounts((1, 2, 0, 0, 0, 0)), False),
+        (DiceCounts(1, 1, 1, 1, 1, 1), True),
+        (DiceCounts(1, 1, 1, 1, 1, 0), False),
+        (DiceCounts(6, 0, 0, 0, 0, 0), True),
+        (DiceCounts(5, 0, 0, 0, 0, 0), False),
+        (DiceCounts(1, 0, 0, 0, 0, 0), False),
+        (DiceCounts(1, 2, 0, 0, 0, 0), False),
     ],
 )
 def test_is_fill(hold: DiceCounts, expected: bool) -> None:
@@ -88,16 +87,21 @@ def game() -> FillOrBustEnvironment:
     return FillOrBustEnvironment()
 
 
+@pytest.fixture()
+def agent() -> Agent:
+    return Agent("test_agent")
+
+
 @pytest.mark.parametrize("expected_score", [300])
 def test_same_roll_requirement_for_triples(
-    expected_score: int, game: FillOrBustEnvironment
+    expected_score: int, agent: Agent, game: FillOrBustEnvironment
 ) -> None:
-    game.dice = DiceCounts((2, 2, 2, 0, 0, 0))
-    game.step(("hold", DiceCounts((2, 0, 0, 0, 0, 0))))
-    game.dice = DiceCounts((1, 2, 1, 0, 0, 0))
-    game.step(("hold", DiceCounts((1, 0, 0, 0, 0, 0))))
-    game.step(("stop", None))
-    assert game.game_score == expected_score
+    game.dice = DiceCounts(2, 2, 2, 0, 0, 0)
+    game.step(agent, ("hold", DiceCounts(2, 0, 0, 0, 0, 0)))
+    game.dice = DiceCounts(1, 2, 1, 0, 0, 0)
+    game.step(agent, ("hold", DiceCounts(1, 0, 0, 0, 0, 0)))
+    game.step(agent, ("stop", None))
+    assert agent.game_score == expected_score
 
 
 # ---------------------------------- #
@@ -112,7 +116,7 @@ def test_same_roll_requirement_for_triples(
             Observation(
                 0,
                 6,
-                DiceCounts((0, 0, 0, 0, 0, 0)),
+                DiceCounts(),
                 make_a_bonus_card(300),
                 False,
             ),
@@ -123,18 +127,18 @@ def test_same_roll_requirement_for_triples(
             Observation(
                 0,
                 6,
-                DiceCounts((1, 0, 0, 0, 0, 0)),
+                DiceCounts(1, 0, 0, 0, 0, 0),
                 make_a_bonus_card(300),
                 False,
             ),
-            [("hold", DiceCounts((1, 0, 0, 0, 0, 0)))],
+            [("hold", DiceCounts(1, 0, 0, 0, 0, 0))],
             id="Rolled 1 one.",
         ),
         pytest.param(
             Observation(
                 100,
                 5,
-                DiceCounts((0, 0, 0, 0, 0, 0)),
+                DiceCounts(),
                 make_a_bonus_card(300),
                 False,
             ),
@@ -145,7 +149,7 @@ def test_same_roll_requirement_for_triples(
             Observation(
                 100,
                 3,
-                DiceCounts((0, 0, 0, 0, 0, 0)),
+                DiceCounts(),
                 make_a_fill_1000(),
                 False,
             ),
@@ -156,13 +160,13 @@ def test_same_roll_requirement_for_triples(
             Observation(
                 0,
                 6,
-                DiceCounts((2, 2, 2, 0, 0, 0)),
+                DiceCounts(2, 2, 2, 0, 0, 0),
                 make_a_bonus_card(300),
                 False,
             ),
             [
-                ("hold", DiceCounts((1, 0, 0, 0, 0, 0))),
-                ("hold", DiceCounts((2, 0, 0, 0, 0, 0))),
+                ("hold", DiceCounts(1, 0, 0, 0, 0, 0)),
+                ("hold", DiceCounts(2, 0, 0, 0, 0, 0)),
             ],
             id="Rolled 2 ones.",
         ),
@@ -170,14 +174,14 @@ def test_same_roll_requirement_for_triples(
             Observation(
                 150,
                 4,
-                DiceCounts((0, 3, 0, 0, 1, 0)),
+                DiceCounts(0, 3, 0, 0, 1, 0),
                 make_a_bonus_card(300),
                 False,
             ),
             [
-                ("hold", DiceCounts((0, 3, 0, 0, 0, 0))),
-                ("hold", DiceCounts((0, 3, 0, 0, 1, 0))),
-                ("hold", DiceCounts((0, 0, 0, 0, 1, 0))),
+                ("hold", DiceCounts(0, 3, 0, 0, 0, 0)),
+                ("hold", DiceCounts(0, 3, 0, 0, 1, 0)),
+                ("hold", DiceCounts(0, 0, 0, 0, 1, 0)),
             ],
             id="Rolled a triple two and 1 five.",
         ),
@@ -185,7 +189,7 @@ def test_same_roll_requirement_for_triples(
             Observation(
                 350,
                 2,
-                DiceCounts((0, 0, 0, 0, 0, 0)),
+                DiceCounts(),
                 make_a_bonus_card(300),
                 False,
             ),
@@ -196,7 +200,7 @@ def test_same_roll_requirement_for_triples(
             Observation(
                 0,
                 6,
-                DiceCounts((0, 0, 0, 0, 0, 0)),
+                DiceCounts(),
                 None,
                 False,
             ),
@@ -207,7 +211,7 @@ def test_same_roll_requirement_for_triples(
             Observation(
                 250,
                 1,
-                DiceCounts((0, 0, 0, 0, 0, 0)),
+                DiceCounts(),
                 make_a_must_bust_card(),
                 False,
             ),
@@ -218,7 +222,7 @@ def test_same_roll_requirement_for_triples(
             Observation(
                 400,
                 2,
-                DiceCounts((2, 1, 1, 0, 0, 0)),
+                DiceCounts(2, 1, 1, 0, 0, 0),
                 make_a_bonus_card(300),
                 True,
             ),
@@ -232,32 +236,35 @@ def test_determine_available_actions(obs: Observation, expected: list[ActionT]) 
 
 
 # Test out that some patterns of moves result in the expected actions
-def test_inheritance_is_available_after_stopping(game: FillOrBustEnvironment) -> None:
+def test_inheritance_is_available_after_stopping(
+    agent: Agent, game: FillOrBustEnvironment
+) -> None:
     game.card = make_a_bonus_card(300)
     game.hold_score = 500
-    game.dice = DiceCounts((0, 2, 1, 0, 3, 0))
-    game.holds = DiceCounts((0, 0, 0, 0, 3, 0))
-    game.step(("stop", None))
-    game.game_score = 0  # Reset the game score for new player's turn
+    game.dice = DiceCounts(0, 2, 1, 0, 3, 0)
+    game.holds = DiceCounts(0, 0, 0, 0, 3, 0)
+    game.step(agent, ("stop", None))
+    assert game.player is not None
+    game.player.game_score = 0  # Reset the game score for new player's turn
     assert determine_available_actions(game._get_obs()) == [
         ("inherit", False),
         ("inherit", True),
     ]
     with patch("dice.game.draw_card", return_value=make_a_bonus_card(500)):
-        game.step(("inherit", True))
+        game.step(agent, ("inherit", True))
         assert determine_available_actions(game._get_obs()) == [("roll", None)]
-        with patch("dice.game.roll_dice", return_value=DiceCounts((1, 1, 1, 0, 0, 0))):
-            game.step(("roll", None))
+        with patch("dice.game.roll_dice", return_value=DiceCounts(1, 1, 1, 0, 0, 0)):
+            game.step(agent, ("roll", None))
             assert determine_available_actions(game._get_obs()) == [
-                ("hold", DiceCounts((1, 0, 0, 0, 0, 0)))
+                ("hold", DiceCounts(1, 0, 0, 0, 0, 0))
             ]
-            game.step(("hold", DiceCounts((1, 0, 0, 0, 0, 0))))
+            game.step(agent, ("hold", DiceCounts(1, 0, 0, 0, 0, 0)))
             assert determine_available_actions(game._get_obs()) == [
                 ("roll", None),
                 ("stop", None),
             ]
-            game.step(("stop", None))
-            assert game.game_score == 600
+            game.step(agent, ("stop", None))
+            assert game.player.game_score == 600
 
 
 # ---------------------------------------------------- #
@@ -338,44 +345,76 @@ def test_determine_hold_options_from_dice(
 @pytest.mark.parametrize(
     ["dice", "bonus", "expected_score"],
     [
-        (DiceCounts((2, 3, 0, 0, 1, 0)), 300, 750),
-        (DiceCounts((1, 2, 1, 1, 0, 1)), 300, 400),
-        (DiceCounts((0, 3, 1, 1, 0, 1)), 500, 700),
-        (DiceCounts((2, 2, 0, 0, 1, 0)), 300, 250),  # No fill
-        (DiceCounts((1, 2, 0, 1, 0, 1)), 300, 100),  # No fill
-        (DiceCounts((0, 3, 1, 1, 0, 0)), 500, 200),  # No fill
+        pytest.param(DiceCounts(2, 3, 0, 0, 1, 0), 300, 750, id="Three 2's, one 5"),
+        pytest.param(DiceCounts(1, 2, 1, 1, 0, 1), 300, 400, id="One 1"),
+        pytest.param(DiceCounts(0, 3, 1, 1, 0, 1), 500, 700, id="Three 2's"),
+        pytest.param(
+            DiceCounts(2, 2, 0, 0, 1, 0), 300, 250, id="Two 1's, one 5, no fill"
+        ),
+        pytest.param(DiceCounts(1, 2, 0, 1, 0, 1), 300, 100, id="One 1, no fill"),
+        pytest.param(DiceCounts(0, 3, 1, 1, 0, 0), 500, 200, id="Three 2's, no fill"),
     ],
 )
 def test_garden_variety_bonus_only_gets_applied_with_fill(
     dice: DiceCounts,
     bonus: GardenVarietyBonusT,
     expected_score: int,
+    agent: Agent,
     game: FillOrBustEnvironment,
 ) -> None:
     game.card = make_a_bonus_card(bonus)
 
     game.dice = dice
-    game.step(("hold", dice))
-    game.step(("stop", None))
-    assert game.game_score == expected_score
+    game.step(agent, ("hold", dice))
+    game.step(agent, ("stop", None))
+
+    assert game.player is not None
+    assert game.player.game_score == expected_score
 
 
 def test_that_must_bust_preserves_score_after_busting(
+    agent: Agent,
     game: FillOrBustEnvironment,
 ) -> None:
     game.card = make_a_must_bust_card()
     game.hold_score = 200
-    with patch("dice.game.roll_dice", return_value=DiceCounts((0, 1, 1, 1, 0, 0))):
-        game.step(("roll", None))
-        assert game.game_score == 200
+    with patch("dice.game.roll_dice", return_value=DiceCounts(0, 1, 1, 1, 0, 0)):
+        game.step(agent, ("roll", None))
+        assert game.player is not None
+        assert game.player.game_score == 200
 
 
-# ---------------------------- #
-# Test that state is immutable
-# ---------------------------- #
-# TODO: Test that the state is immutable and the agent will learn
-# def test_previous_state_does_not_change_after_action() -> None:
-#     game = Game()
-#     previous_state = game.state
-#     game.handle_action("draw")
-#     assert previous_state != game.state
+# Write unit tests from the `Deck` class
+NUM_CARDS_IN_DECK = sum(
+    [
+        Deck.NUM_NO_DICE,
+        Deck.NUM_FILL_1000,
+        Deck.NUM_BONUS_300,
+        Deck.NUM_BONUS_400,
+        Deck.NUM_BONUS_500,
+        Deck.NUM_MUST_BUST,
+    ]
+)
+
+
+def test_deck_initialization() -> None:
+    deck = Deck()
+    assert len(deck.cards) == NUM_CARDS_IN_DECK
+
+
+def test_deck_draw() -> None:
+    deck = Deck()
+    card = deck.draw()
+    assert len(deck.cards) == NUM_CARDS_IN_DECK - 1
+    assert card is not None
+
+
+def test_deck_empty_draw() -> None:
+    deck = Deck()
+    for _ in range(NUM_CARDS_IN_DECK):
+        deck.draw()
+    assert len(deck.cards) == 0
+
+    # Check that the deck is shuffled and can be drawn from again
+    deck.draw()
+    assert len(deck.cards) == NUM_CARDS_IN_DECK - 1

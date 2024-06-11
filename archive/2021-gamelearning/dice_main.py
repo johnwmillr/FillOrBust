@@ -5,8 +5,8 @@ from dice.game import FillOrBustEnvironment
 
 
 def main() -> None:
-    n_episodes = 5000
-    start_learning_rate = 0.0001
+    n_episodes = 1000
+    start_learning_rate = 0.001
     lr_decay = start_learning_rate / (n_episodes // 2)
     final_lr = 0.0001
     start_epsilon = 1.0
@@ -25,17 +25,19 @@ def main() -> None:
     )
 
     agent1 = SmartAgent("agent1", **kwargs)
-    # agent2 = SmartAgent("agent2", **kwargs)
+    agent2 = SmartAgent("agent2", **kwargs)
 
     # agent1 = Agent("agent1")
-    agent2 = Agent("agent2")
+    # agent2 = Agent("agent2")
+    # agent3 = Agent("agent3")
 
-    agents = [agent1]
+    agents: list[Agent] = [agent1, agent2]
 
     env = FillOrBustEnvironment()
     for episode in tqdm(range(n_episodes)):
         obs, _ = env.reset_for_new_game()
         done, turn_is_over = False, False
+        highest_score, winner = 0, None
 
         # play one episode
         while not done:
@@ -43,7 +45,7 @@ def main() -> None:
                 while not turn_is_over:
                     action = agent.get_action(obs)
                     next_obs, reward, terminated, truncated, turn_is_over, info = (
-                        env.step(action)
+                        env.step(agent, action)
                     )
 
                     agent.update(
@@ -57,11 +59,18 @@ def main() -> None:
                     break
 
         for agent in agents:
+            if agent.game_score > highest_score:
+                highest_score = agent.game_score
+                winner = agent
+            agent.game_score = 0
             if isinstance(agent, SmartAgent):
                 agent.decay_epsilon()
                 agent.decay_learning_rate()
 
-    print("Done training!")
+        for agent in agents:
+            if agent == winner:
+                agent.wins += 1
+                break
 
 
 if __name__ == "__main__":

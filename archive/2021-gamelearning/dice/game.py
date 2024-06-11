@@ -1,12 +1,9 @@
 import random
-from collections import defaultdict
-from itertools import product
 
+from dice.agents import Agent
 from dice.cards import Card, Deck
+from dice.constants import NUM_DICE_IN_GAME
 from dice.types import ActionT, DiceCounts, Observation, StepInfo
-
-NUM_DICE_IN_GAME = 6
-TRIPLE_VALUES = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
 
 
 deck = Deck()
@@ -18,6 +15,7 @@ def draw_card() -> Card:
 
 def calc_score(dice: DiceCounts) -> int:
     assert len(dice), "Can't score empty dice"
+    TRIPLE_VALUES = {1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600}
 
     # Check for a straight
     if dice == (1, 1, 1, 1, 1, 1):
@@ -39,85 +37,14 @@ def calc_score(dice: DiceCounts) -> int:
     return score
 
 
-def determine_available_actions(obs: Observation) -> list[ActionT]:
-    """Determine what actions are available based on the current state
-
-    Returns:
-        list[ActionT]: A list of possible actions.
-    """
-    options: list[ActionT] = []
-
-    if obs.inheriting and obs.card is not None and sum(obs.dice) > 0:
-        return [("inherit", False), ("inherit", True)]
-
-    if obs.card is None:
-        # No card, must draw
-        return [("draw", None)]
-
-    if obs.num_dice_remaining == 0:
-        # Filled, must either draw or stop
-        return [("draw", None), ("stop", None)]
-
-    # Either we haven't rolled at all, or we've rolled and just held dice
-    if sum(obs.dice) == 0 or sum(obs.dice) > obs.num_dice_remaining:
-        # No just-rolled dice waiting to be held, could roll
-        options.append(("roll", None))
-        if (
-            obs.hold_score > 0
-            and not obs.card.must_fill
-            and obs.card.category != "must_bust"
-            and not obs.inheriting
-            or obs.num_dice_remaining == 0
-        ):
-            # Have held some dice, could stop
-            options.append(("stop", None))
-        return options
-
-    # We just rolled, need to hold some dice
-    possible_holds = determine_hold_options_from_dice(obs.dice)
-    options.extend(("hold", hold) for hold in possible_holds)
-    return options
-
-
-def determine_hold_options_from_dice(dice: DiceCounts) -> list[DiceCounts]:
-    if sum(dice) == 0:
-        return [DiceCounts((0, 0, 0, 0, 0, 0))]
-
-    # Check for a straight
-    if dice == DiceCounts((1, 1, 1, 1, 1, 1)):
-        return [DiceCounts((1, 1, 1, 1, 1, 1))]
-
-    # Keep track of how many times a particular dice can be held
-    options: defaultdict[int, tuple[int, ...]] = defaultdict(tuple[int])
-    for n in range(1, NUM_DICE_IN_GAME + 1):
-        options[n] = (0,)
-
-    # Check for singles
-    for die, count in enumerate(dice, start=1):
-        # Check for triples
-        if count >= 3:
-            options[die] += (3,)
-        if count == 6:
-            options[die] += (6,)
-
-        # Check for singles
-        if count and die in [1, 5]:
-            options[die] += tuple(range(count + 1))
-
-    # Translate dice options to holds
-    holds = product(*options.values())
-    holds = set(DiceCounts(item) for item in holds if item != ((0,) * NUM_DICE_IN_GAME))
-    return sorted(holds)
-
-
 def roll_dice(num_dice: int) -> DiceCounts:
     dice = list(random.randint(1, 6) for _ in range(num_dice))
-    return DiceCounts(dice.count(die) for die in range(1, 7))  # type: ignore
+    return DiceCounts(*(dice.count(die) for die in range(1, 7)))
 
 
 def hold_dice(current_holds: DiceCounts, new_holds: DiceCounts) -> DiceCounts:
     return DiceCounts(
-        old_hold + new_hold for old_hold, new_hold in zip(current_holds, new_holds)
+        *(old_hold + new_hold for old_hold, new_hold in zip(current_holds, new_holds))
     )
 
 
@@ -129,8 +56,21 @@ def is_fill(held_dice: DiceCounts) -> bool:
     return sum(held_dice) == NUM_DICE_IN_GAME
 
 
+def sigmoid(x: float) -> float:
+    return 1 / (1 + 2.71828**-x)
+
+
 def convert_num_turns_to_reward(num_turns: int) -> float:
     return 1000 / num_turns
+    # return -sigmoid((num_turns - 50) / 10)
+
+    if num_turns > 50:
+        return 0
+    elif num_turns > 45:
+        return 0.5
+    else:
+        return 1
+
     reward = 1000 / num_turns - 18
     return min(max(reward, -3), 15)
     max_value = 85
@@ -147,11 +87,11 @@ class FillOrBustEnvironment:
         self.score_needed_to_win = score_needed_to_win
         self.turn_is_over = False
         self.turn_scores = []
-        self.num_turns = 0
+        self.player: Agent | None = None
         self.reset_for_new_game()
 
     def step(
-        self, action: ActionT
+        self, agent: Agent, action: ActionT
     ) -> tuple[Observation, float, bool, bool, bool, StepInfo]:
         """Run one timestep of the environment's dynamics.
 
@@ -176,30 +116,34 @@ class FillOrBustEnvironment:
                 It also can contain information that distinguishes truncation and termination, however this is deprecated in favour
                 of returning two booleans, and will be removed in a future version.
         """
+        # Update environment variables for this new step
+        terminated, truncated, self.turn_is_over = False, False, False
+        self.player = agent
         reward = 0
-        terminated, truncated, self.turn_is_over = (False, False, False)
+
+        # Respond to the action taken
         if action[0] == "draw" or action[0] == "inherit":
             if action[0] == "inherit":
                 if action[1] is False:  # Decline the inheritance
                     self.card = None
                     self.hold_score = 0
-                    self.dice = DiceCounts((0, 0, 0, 0, 0, 0))
-                    self.holds = DiceCounts((0, 0, 0, 0, 0, 0))
-                    self.inheriting = False
+                    self.dice = DiceCounts()
+                    self.holds = DiceCounts()
+                    self.inheritance_available = False
 
             self.card = draw_card()
             if self.card.category == "no_dice":
                 self.reset_for_new_turn()  # XXX: This hides the no dice card from ever being observed—is that okay?
-            self.dice = DiceCounts((0, 0, 0, 0, 0, 0))  # Kludge for inheritance
+            self.dice = DiceCounts()  # Kludge for inheritance
         elif action[0] == "roll":
             self.dice = roll_dice(NUM_DICE_IN_GAME - sum(self.holds))
             if is_bust(self.dice):
                 if self.card is not None and self.card.category == "must_bust":
-                    self.game_score += self.hold_score
+                    self.player.game_score += self.hold_score
                 else:
                     self.hold_score = 0
                 self.reset_for_new_turn()
-            self.inheriting = False
+            self.inheritance_available = False
         elif action[0] == "hold":
             assert isinstance(action[1], DiceCounts)
 
@@ -211,45 +155,47 @@ class FillOrBustEnvironment:
                     self.hold_score += self.card.bonus
                 self.reset_dice_and_holds_and_cards()
         elif action[0] == "stop":
-            self.game_score += self.hold_score
-            self.reset_for_new_turn(preserve_holds=True)
+            self.player.game_score += self.hold_score
+            self.reset_for_new_turn(
+                inheritance=False
+            )  # Set to True for MussBuss inheritance
 
         # Give a reward if we've reached the max score
-        if self.game_score >= self.score_needed_to_win:
+        if self.player.game_score >= self.score_needed_to_win:
+            reward = convert_num_turns_to_reward(self.player.turn_count)
+            # reward = 1
             terminated = True
-            reward = convert_num_turns_to_reward(self.num_turns)
 
         # Save some training info
         info = StepInfo(
-            num_turns=self.num_turns,
+            num_turns=self.player.turn_count,
             reward=reward,
-            game_score=self.game_score,
+            game_score=self.player.game_score,
         )
         return self._get_obs(), reward, terminated, truncated, self.turn_is_over, info
 
     def reset_dice_and_holds_and_cards(self) -> None:
-        self.dice = DiceCounts((0, 0, 0, 0, 0, 0))
-        self.holds = DiceCounts((0, 0, 0, 0, 0, 0))
+        self.dice = DiceCounts()
+        self.holds = DiceCounts()
         self.card = None
 
-    def reset_for_new_turn(self, preserve_holds: bool = False) -> None:
-        # Set `preserve_holds` to `True` for Muss Buss inheritance
+    def reset_for_new_turn(self, inheritance: bool = False) -> None:
+        # Set `inheritance` to `True` for Muss Buss inheritance
         self.turn_is_over = True
-        self.num_turns += 1
+        if self.player is not None:
+            self.player.turn_count += 1
         self.turn_scores.append(self.hold_score)
-        if preserve_holds:
-            self.inheriting = True
-            # self.holds = DiceCounts((0, 0, 0, 0, 0, 0))
+        if inheritance and self.hold_score > 0:
+            self.inheritance_available = True
         else:
-            self.inheriting = False
+            self.inheritance_available = False
             self.hold_score = 0
             self.reset_dice_and_holds_and_cards()
 
     def reset_for_new_game(self) -> tuple[Observation, None]:
         self.hold_score = 0
-        self.game_score = 0
         self.reset_for_new_turn()
-        self.num_turns = 0
+        self.player = None
         return self._get_obs(), None
 
     def _get_obs(self) -> Observation:
@@ -258,5 +204,5 @@ class FillOrBustEnvironment:
             NUM_DICE_IN_GAME - sum(self.holds),
             self.dice,
             self.card,
-            self.inheriting,
+            self.inheritance_available,
         )

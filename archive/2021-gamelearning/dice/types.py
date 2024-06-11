@@ -3,7 +3,14 @@ from typing import Literal, NamedTuple
 from dice.cards import Card
 
 
-class DiceCounts(tuple[int, ...]): ...  # Should actually be length six
+# Create a `Dice` class that contains the counts of each die value.
+class DiceCounts(NamedTuple):
+    one: int = 0
+    two: int = 0
+    three: int = 0
+    four: int = 0
+    five: int = 0
+    six: int = 0
 
 
 ActionT = tuple[

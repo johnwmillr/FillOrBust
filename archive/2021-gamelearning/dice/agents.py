@@ -1,14 +1,89 @@
 # https://gymnasium.farama.org/tutorials/training_agents/blackjack_tutorial/
-from collections import defaultdict
 import random
+from collections import defaultdict
+from itertools import product
 
-from dice.game import determine_available_actions
-from dice.types import ActionT, Observation, StepInfo
+from dice.constants import NUM_DICE_IN_GAME
+from dice.types import ActionT, DiceCounts, Observation, StepInfo
+
+
+def determine_available_actions(obs: Observation) -> list[ActionT]:
+    """Determine what actions are available based on the current state
+
+    Returns:
+        list[ActionT]: A list of possible actions.
+    """
+    options: list[ActionT] = []
+
+    if obs.inheriting and obs.card is not None and sum(obs.dice) > 0:
+        return [("inherit", False), ("inherit", True)]
+
+    if obs.card is None:
+        # No card, must draw
+        return [("draw", None)]
+
+    if obs.num_dice_remaining == 0:
+        # Filled, must either draw or stop
+        return [("draw", None), ("stop", None)]
+
+    # Either we haven't rolled at all, or we've rolled and just held dice
+    if sum(obs.dice) == 0 or sum(obs.dice) > obs.num_dice_remaining:
+        # No just-rolled dice waiting to be held, could roll
+        options.append(("roll", None))
+        if (
+            obs.hold_score > 0
+            and obs.card.category != "must_bust"
+            and not obs.card.must_fill
+            and not obs.inheriting
+        ):
+            # Have held some dice, could stop
+            options.append(("stop", None))
+        return options
+
+    # We just rolled, need to hold some dice
+    possible_holds = determine_hold_options_from_dice(obs.dice)
+    options.extend(("hold", hold) for hold in possible_holds)
+    return options
+
+
+def determine_hold_options_from_dice(dice: DiceCounts) -> list[DiceCounts]:
+    if sum(dice) == 0:
+        return [DiceCounts()]
+
+    # Check for a straight
+    if dice == DiceCounts(1, 1, 1, 1, 1, 1):
+        return [DiceCounts(1, 1, 1, 1, 1, 1)]
+
+    # Keep track of how many times a particular dice can be held
+    options: defaultdict[int, tuple[int, ...]] = defaultdict(tuple[int])
+    for n in range(1, NUM_DICE_IN_GAME + 1):
+        options[n] = (0,)
+
+    # Check for singles
+    for die, count in enumerate(dice, start=1):
+        # Check for triples
+        if count >= 3:
+            options[die] += (3,)
+        if count == 6:
+            options[die] += (6,)
+
+        # Check for singles
+        if count and die in [1, 5]:
+            options[die] += tuple(range(count + 1))
+
+    # Translate dice options to holds
+    holds = product(*options.values())
+    holds = set(
+        DiceCounts(*item) for item in holds if item != ((0,) * NUM_DICE_IN_GAME)
+    )
+    return sorted(holds)
 
 
 class Agent:
     def __init__(self, name: str) -> None:
         self.name = name
+        self.game_score = 0
+        self.turn_count = 0
         self.num_turns: list[int] = []
         self.rewards: list[float] = []
         self.game_scores: list[int] = []
@@ -32,10 +107,10 @@ class Agent:
         next_obs: Observation,
         info: StepInfo | None = None,
     ):
-        # Update the agent's training info
         if info is None:
             return
 
+        # Update the agent's training info
         self.num_turns.append(info.num_turns)
         self.rewards.append(info.reward)
         self.game_scores.append(info.game_score)
@@ -123,7 +198,7 @@ class SmartAgent(Agent):
         next_obs: Observation,
         info: StepInfo | None = None,
     ):
-        """Updates the Q-value of an action."""
+        """Updates an action's Q-value."""
         super().update(obs, action, reward, terminated, turn_is_over, next_obs, info)
 
         current_q_value = self.q_values[obs][action]
