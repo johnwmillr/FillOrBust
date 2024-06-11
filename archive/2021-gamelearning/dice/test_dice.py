@@ -113,57 +113,27 @@ def test_same_roll_requirement_for_triples(
     ["obs", "expected"],
     [
         pytest.param(
-            Observation(
-                0,
-                6,
-                DiceCounts(),
-                make_a_bonus_card(300),
-                False,
-            ),
+            Observation(0, 6, DiceCounts(), make_a_bonus_card(300)),
             [("roll", None)],
             id="Drew a card, haven't rolled.",
         ),
         pytest.param(
-            Observation(
-                0,
-                6,
-                DiceCounts(1, 0, 0, 0, 0, 0),
-                make_a_bonus_card(300),
-                False,
-            ),
+            Observation(0, 6, DiceCounts(1, 0, 0, 0, 0, 0), make_a_bonus_card(300)),
             [("hold", DiceCounts(1, 0, 0, 0, 0, 0))],
             id="Rolled 1 one.",
         ),
         pytest.param(
-            Observation(
-                100,
-                5,
-                DiceCounts(),
-                make_a_bonus_card(300),
-                False,
-            ),
+            Observation(100, 5, DiceCounts(), make_a_bonus_card(300)),
             [("roll", None), ("stop", None)],
             id="Held dice, can either roll or stop.",
         ),
         pytest.param(
-            Observation(
-                100,
-                3,
-                DiceCounts(),
-                make_a_fill_1000(),
-                False,
-            ),
+            Observation(100, 3, DiceCounts(), make_a_fill_1000()),
             [("roll", None)],
             id="Drew a Fill 1000, must roll.",
         ),
         pytest.param(
-            Observation(
-                0,
-                6,
-                DiceCounts(2, 2, 2, 0, 0, 0),
-                make_a_bonus_card(300),
-                False,
-            ),
+            Observation(0, 6, DiceCounts(2, 2, 2, 0, 0, 0), make_a_bonus_card(300)),
             [
                 ("hold", DiceCounts(1, 0, 0, 0, 0, 0)),
                 ("hold", DiceCounts(2, 0, 0, 0, 0, 0)),
@@ -171,13 +141,7 @@ def test_same_roll_requirement_for_triples(
             id="Rolled 2 ones.",
         ),
         pytest.param(
-            Observation(
-                150,
-                4,
-                DiceCounts(0, 3, 0, 0, 1, 0),
-                make_a_bonus_card(300),
-                False,
-            ),
+            Observation(150, 4, DiceCounts(0, 3, 0, 0, 1, 0), make_a_bonus_card(300)),
             [
                 ("hold", DiceCounts(0, 3, 0, 0, 0, 0)),
                 ("hold", DiceCounts(0, 3, 0, 0, 1, 0)),
@@ -186,85 +150,24 @@ def test_same_roll_requirement_for_triples(
             id="Rolled a triple two and 1 five.",
         ),
         pytest.param(
-            Observation(
-                350,
-                2,
-                DiceCounts(),
-                make_a_bonus_card(300),
-                False,
-            ),
+            Observation(350, 2, DiceCounts(), make_a_bonus_card(300)),
             [("roll", None), ("stop", None)],
             id="Holding dice, could roll or stop.",
         ),
         pytest.param(
-            Observation(
-                0,
-                6,
-                DiceCounts(),
-                None,
-                False,
-            ),
+            Observation(0, 6, DiceCounts(), None),
             [("draw", None)],
             id="No card, must draw.",
         ),
         pytest.param(
-            Observation(
-                250,
-                1,
-                DiceCounts(),
-                make_a_must_bust_card(),
-                False,
-            ),
+            Observation(250, 1, DiceCounts(), make_a_must_bust_card()),
             [("roll", None)],
             id="Must bust, must roll.",
-        ),
-        pytest.param(
-            Observation(
-                400,
-                2,
-                DiceCounts(2, 1, 1, 0, 0, 0),
-                make_a_bonus_card(300),
-                True,
-            ),
-            [("inherit", True), ("inherit", False)],
-            id="Inheriting, must either inherit or pass.",
         ),
     ],
 )
 def test_determine_available_actions(obs: Observation, expected: list[ActionT]) -> None:
     assert determine_available_actions(obs) == sorted(expected)
-
-
-# Test out that some patterns of moves result in the expected actions
-def test_inheritance_is_available_after_stopping(
-    agent: Agent, game: FillOrBustEnvironment
-) -> None:
-    game.card = make_a_bonus_card(300)
-    game.hold_score = 500
-    game.dice = DiceCounts(0, 2, 1, 0, 3, 0)
-    game.holds = DiceCounts(0, 0, 0, 0, 3, 0)
-    game.step(agent, ("stop", None))
-    assert game.player is not None
-    game.player.game_score = 0  # Reset the game score for new player's turn
-    assert determine_available_actions(game._get_obs()) == [
-        ("inherit", False),
-        ("inherit", True),
-    ]
-    with patch("dice.game.draw_card", return_value=make_a_bonus_card(500)):
-        game.step(agent, ("inherit", True))
-        assert determine_available_actions(game._get_obs()) == [("roll", None)]
-        with patch("dice.game.roll_dice", return_value=DiceCounts(1, 1, 1, 0, 0, 0)):
-            game.step(agent, ("roll", None))
-            assert determine_available_actions(game._get_obs()) == [
-                ("hold", DiceCounts(1, 0, 0, 0, 0, 0))
-            ]
-            game.step(agent, ("hold", DiceCounts(1, 0, 0, 0, 0, 0)))
-            assert determine_available_actions(game._get_obs()) == [
-                ("roll", None),
-                ("stop", None),
-            ]
-            game.step(agent, ("stop", None))
-            assert game.player.game_score == 600
 
 
 # ---------------------------------------------------- #

@@ -15,7 +15,7 @@ class DiceCounts(NamedTuple):
 
 ActionT = tuple[
     Literal["inherit", "draw", "roll", "hold", "stop"], int | DiceCounts | None
-]  # The action name and any accompanying info (e.g. ("roll", 4))
+]  # The action name and any accompanying info (e.g. ("hold", DiceCounts(1, 1, 0, 0, 0, 0)))
 
 
 class StepInfo:
@@ -37,4 +37,3 @@ class Observation(NamedTuple):
     num_dice_remaining: int
     dice: DiceCounts
     card: Card | None
-    inheriting: bool

@@ -15,9 +15,6 @@ def determine_available_actions(obs: Observation) -> list[ActionT]:
     """
     options: list[ActionT] = []
 
-    if obs.inheriting and obs.card is not None and sum(obs.dice) > 0:
-        return [("inherit", False), ("inherit", True)]
-
     if obs.card is None:
         # No card, must draw
         return [("draw", None)]
@@ -34,7 +31,6 @@ def determine_available_actions(obs: Observation) -> list[ActionT]:
             obs.hold_score > 0
             and obs.card.category != "must_bust"
             and not obs.card.must_fill
-            and not obs.inheriting
         ):
             # Have held some dice, could stop
             options.append(("stop", None))

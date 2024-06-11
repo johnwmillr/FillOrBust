@@ -122,19 +122,10 @@ class FillOrBustEnvironment:
         reward = 0
 
         # Respond to the action taken
-        if action[0] == "draw" or action[0] == "inherit":
-            if action[0] == "inherit":
-                if action[1] is False:  # Decline the inheritance
-                    self.card = None
-                    self.hold_score = 0
-                    self.dice = DiceCounts()
-                    self.holds = DiceCounts()
-                    self.inheritance_available = False
-
+        if action[0] == "draw":
             self.card = draw_card()
             if self.card.category == "no_dice":
                 self.reset_for_new_turn()  # XXX: This hides the no dice card from ever being observed—is that okay?
-            self.dice = DiceCounts()  # Kludge for inheritance
         elif action[0] == "roll":
             self.dice = roll_dice(NUM_DICE_IN_GAME - sum(self.holds))
             if is_bust(self.dice):
@@ -156,9 +147,7 @@ class FillOrBustEnvironment:
                 self.reset_dice_and_holds_and_cards()
         elif action[0] == "stop":
             self.player.game_score += self.hold_score
-            self.reset_for_new_turn(
-                inheritance=False
-            )  # Set to True for MussBuss inheritance
+            self.reset_for_new_turn()
 
         # Give a reward if we've reached the max score
         if self.player.game_score >= self.score_needed_to_win:
@@ -179,18 +168,13 @@ class FillOrBustEnvironment:
         self.holds = DiceCounts()
         self.card = None
 
-    def reset_for_new_turn(self, inheritance: bool = False) -> None:
-        # Set `inheritance` to `True` for Muss Buss inheritance
+    def reset_for_new_turn(self) -> None:
         self.turn_is_over = True
         if self.player is not None:
             self.player.turn_count += 1
         self.turn_scores.append(self.hold_score)
-        if inheritance and self.hold_score > 0:
-            self.inheritance_available = True
-        else:
-            self.inheritance_available = False
-            self.hold_score = 0
-            self.reset_dice_and_holds_and_cards()
+        self.hold_score = 0
+        self.reset_dice_and_holds_and_cards()
 
     def reset_for_new_game(self) -> tuple[Observation, None]:
         self.hold_score = 0
@@ -204,5 +188,4 @@ class FillOrBustEnvironment:
             NUM_DICE_IN_GAME - sum(self.holds),
             self.dice,
             self.card,
-            self.inheritance_available,
         )
