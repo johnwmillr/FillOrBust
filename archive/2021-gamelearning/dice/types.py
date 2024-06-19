@@ -13,12 +13,13 @@ class DiceCounts(NamedTuple):
     six: int = 0
 
 
+ActionStr = Literal["inherit", "draw", "roll", "hold", "stop"]
 ActionT = tuple[
-    Literal["inherit", "draw", "roll", "hold", "stop"], int | DiceCounts | None
+    ActionStr, int | DiceCounts | None
 ]  # The action name and any accompanying info (e.g. ("hold", DiceCounts(1, 1, 0, 0, 0, 0)))
 
 
-class StepInfo:
+class TrainingInfo:
     """Track training information for a single step."""
 
     def __init__(
@@ -33,7 +34,6 @@ class StepInfo:
 
 
 class Observation(NamedTuple):
+    last_action: ActionStr | None
     hold_score: int
-    num_dice_remaining: int
     dice: DiceCounts
-    card: Card | None

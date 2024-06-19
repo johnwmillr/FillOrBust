@@ -4,10 +4,10 @@ from collections import defaultdict
 from itertools import product
 
 from dice.constants import NUM_DICE_IN_GAME
-from dice.types import ActionT, DiceCounts, Observation, StepInfo
+from dice.types import ActionT, DiceCounts, Observation, TrainingInfo
 
 
-def determine_available_actions(obs: Observation) -> list[ActionT]:
+def determine_available_actions_v1(obs: Observation) -> list[ActionT]:
     """Determine what actions are available based on the current state
 
     Returns:
@@ -40,6 +40,23 @@ def determine_available_actions(obs: Observation) -> list[ActionT]:
     possible_holds = determine_hold_options_from_dice(obs.dice)
     options.extend(("hold", hold) for hold in possible_holds)
     return options
+
+
+def determine_available_actions(obs: Observation) -> list[ActionT]:
+    """Determine what actions are available based on the current state
+
+    Returns:
+        list[ActionT]: A list of possible actions.
+    """
+    if obs.last_action is None or obs.last_action == "stop":
+        return [("roll", NUM_DICE_IN_GAME)]
+
+    if obs.last_action == "hold":
+        return [("roll", sum(obs.dice)), ("stop", None)]
+
+    # We just rolled, need to hold some dice
+    possible_holds = determine_hold_options_from_dice(obs.dice)
+    return list(("hold", hold) for hold in possible_holds)
 
 
 def determine_hold_options_from_dice(dice: DiceCounts) -> list[DiceCounts]:
@@ -78,12 +95,18 @@ def determine_hold_options_from_dice(dice: DiceCounts) -> list[DiceCounts]:
 class Agent:
     def __init__(self, name: str) -> None:
         self.name = name
+        self.hold_score = 0
         self.game_score = 0
         self.turn_count = 0
+        self.game_count = 0
+        self.num_turns_in_game = []
         self.num_turns: list[int] = []
         self.rewards: list[float] = []
         self.game_scores: list[int] = []
         self.wins = 0
+
+    def __repr__(self) -> str:
+        return f"<Agent: {self.name}>"
 
     def get_action(self, obs: Observation) -> ActionT:
         """
@@ -98,10 +121,10 @@ class Agent:
         obs: Observation,
         action: ActionT,
         reward: float,
-        terminated: bool,
         turn_is_over: bool,
+        terminated: bool,
         next_obs: Observation,
-        info: StepInfo | None = None,
+        info: TrainingInfo | None = None,
     ):
         if info is None:
             return
@@ -121,7 +144,8 @@ class StopAtNDiceAgent(Agent):
         self.num_dice_to_stop_at = num_dice_to_stop_at
 
     def get_action(self, obs: Observation) -> ActionT:
-        if obs.num_dice_remaining <= self.num_dice_to_stop_at:
+        assert NotImplementedError
+        if sum(obs.dice) <= self.num_dice_to_stop_at:
             return ("stop", None)
         return super().get_action(obs)
 
@@ -163,6 +187,9 @@ class SmartAgent(Agent):
 
         self.training_error: list[float] = []
 
+    def __repr__(self) -> str:
+        return f"<SmartAgent: {self.name}>"
+
     def get_action(self, obs: Observation) -> ActionT:
         """
         Returns the best action with probability (1 - epsilon)
@@ -189,10 +216,10 @@ class SmartAgent(Agent):
         obs: Observation,
         action: ActionT,
         reward: float,
-        terminated: bool,
         turn_is_over: bool,
+        terminated: bool,
         next_obs: Observation,
-        info: StepInfo | None = None,
+        info: TrainingInfo | None = None,
     ):
         """Updates an action's Q-value."""
         super().update(obs, action, reward, terminated, turn_is_over, next_obs, info)

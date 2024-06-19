@@ -3,8 +3,7 @@ import random
 from dice.agents import Agent
 from dice.cards import Card, Deck
 from dice.constants import NUM_DICE_IN_GAME
-from dice.types import ActionT, DiceCounts, Observation, StepInfo
-
+from dice.types import ActionStr, ActionT, DiceCounts, Observation, TrainingInfo
 
 deck = Deck()
 
@@ -42,10 +41,16 @@ def roll_dice(num_dice: int) -> DiceCounts:
     return DiceCounts(*(dice.count(die) for die in range(1, 7)))
 
 
-def hold_dice(current_holds: DiceCounts, new_holds: DiceCounts) -> DiceCounts:
-    return DiceCounts(
+def hold_dice(
+    dice: DiceCounts, current_holds: DiceCounts, new_holds: DiceCounts
+) -> tuple[DiceCounts, DiceCounts]:
+    updated_dice = DiceCounts(
+        *(die - new_hold for die, new_hold in zip(dice, new_holds))
+    )
+    updated_holds = DiceCounts(
         *(old_hold + new_hold for old_hold, new_hold in zip(current_holds, new_holds))
     )
+    return updated_dice, updated_holds
 
 
 def is_bust(dice: DiceCounts) -> bool:
@@ -56,136 +61,85 @@ def is_fill(held_dice: DiceCounts) -> bool:
     return sum(held_dice) == NUM_DICE_IN_GAME
 
 
-def sigmoid(x: float) -> float:
-    return 1 / (1 + 2.71828**-x)
-
-
 def convert_num_turns_to_reward(num_turns: int) -> float:
-    return 1000 / num_turns
-    # return -sigmoid((num_turns - 50) / 10)
-
-    if num_turns > 50:
-        return 0
-    elif num_turns > 45:
-        return 0.5
-    else:
-        return 1
-
-    reward = 1000 / num_turns - 18
-    return min(max(reward, -3), 15)
-    max_value = 85
-    min_value = 55
-    scaled_num_turns = -1 * (
-        ((num_turns - min_value) / (max_value - min_value)) * 2 - 1
-    )
-    return min(max(-1.5, scaled_num_turns), 2)
+    return 1 / num_turns
 
 
-# https://gymnasium.farama.org/tutorials/training_agents/blackjack_tutorial/
-class FillOrBustEnvironment:
-    def __init__(self, score_needed_to_win: int = 10_000) -> None:
-        self.score_needed_to_win = score_needed_to_win
-        self.turn_is_over = False
-        self.turn_scores = []
-        self.player: Agent | None = None
+class FillOrBust:
+
+    SCORE_NEEDED_TO_WIN = 10000
+    current_player: Agent
+
+    def __init__(self, players: list[Agent]) -> None:
+        self.players = players
+        self.actions: list[ActionT] = []
         self.reset_for_new_game()
 
     def step(
-        self, agent: Agent, action: ActionT
-    ) -> tuple[Observation, float, bool, bool, bool, StepInfo]:
-        """Run one timestep of the environment's dynamics.
-
-        When end of episode is reached, you are responsible for calling :meth:`reset` to reset this environment's state.
-
-        Args:
-            action (ActionT): an action provided by the agent
-
-        Returns:
-            observation: this will be an element of the environment's :attr:`observation_space`.
-                This may, for instance, be a numpy array containing the positions and velocities of certain objects.
-            reward: The amount of reward returned as a result of taking the action.
-            terminated: whether a `terminal state` (as defined under the MDP of the task) is reached.
-                In this case further step() calls could return undefined results.
-            truncated: whether a truncation condition outside the scope of the MDP is satisfied.
-                Typically a time limit, but could also be used to indicate agent physically going out of bounds.
-                Can be used to end the episode prematurely before a `terminal state` is reached.
-            turn_is_over: whether the turn is over
-            info: `info` contains auxiliary diagnostic information (helpful for debugging, learning, and logging).
-                This might, for instance, contain: metrics that describe the agent's performance state, variables that are
-                hidden from observations, or individual reward terms that are combined to produce the total reward.
-                It also can contain information that distinguishes truncation and termination, however this is deprecated in favour
-                of returning two booleans, and will be removed in a future version.
-        """
-        # Update environment variables for this new step
-        terminated, truncated, self.turn_is_over = False, False, False
-        self.player = agent
+        self, action: ActionT
+    ) -> tuple[Observation, float, bool, bool, bool, TrainingInfo]:
+        turn_is_over, terminated, truncated = False, False, False
         reward = 0
 
-        # Respond to the action taken
-        if action[0] == "draw":
-            self.card = draw_card()
-            if self.card.category == "no_dice":
-                self.reset_for_new_turn()  # XXX: This hides the no dice card from ever being observed—is that okay?
-        elif action[0] == "roll":
-            self.dice = roll_dice(NUM_DICE_IN_GAME - sum(self.holds))
+        self.last_action: ActionStr | None = action[0]
+        self.actions.append(action)
+        if action[0] == "roll":
+            assert isinstance(action[1], int)
+            self.dice = roll_dice(action[1])
             if is_bust(self.dice):
-                if self.card is not None and self.card.category == "must_bust":
-                    self.player.game_score += self.hold_score
-                else:
-                    self.hold_score = 0
-                self.reset_for_new_turn()
-            self.inheritance_available = False
+                self.current_player.hold_score = 0
+                turn_is_over = True
         elif action[0] == "hold":
             assert isinstance(action[1], DiceCounts)
-
-            # Score holds as we go to keep track of triples
-            self.hold_score += calc_score(action[1])
-            self.holds = hold_dice(self.holds, action[1])
-            if is_fill(self.holds):
-                if self.card is not None:
-                    self.hold_score += self.card.bonus
-                self.reset_dice_and_holds_and_cards()
+            self.dice, self.held_dice = hold_dice(self.dice, self.held_dice, action[1])
+            self.current_player.hold_score += calc_score(action[1])
+            if is_fill(self.held_dice):
+                self.dice = DiceCounts()
+                self.held_dice = DiceCounts()
         elif action[0] == "stop":
-            self.player.game_score += self.hold_score
-            self.reset_for_new_turn()
+            self.current_player.game_score += self.current_player.hold_score
+            self.current_player.hold_score = 0
+            turn_is_over = True
 
-        # Give a reward if we've reached the max score
-        if self.player.game_score >= self.score_needed_to_win:
-            reward = convert_num_turns_to_reward(self.player.turn_count)
-            # reward = 1
+        # Check whether the game is over
+        if self.current_player.game_score >= self.SCORE_NEEDED_TO_WIN:
+            reward = convert_num_turns_to_reward(self.current_player.turn_count)
             terminated = True
 
-        # Save some training info
-        info = StepInfo(
-            num_turns=self.player.turn_count,
+            self.current_player.num_turns_in_game.append(self.current_player.turn_count)
+            self.current_player.game_count += 1
+            self.current_player.wins += 1
+
+        info = TrainingInfo(
+            num_turns=self.current_player.turn_count,
             reward=reward,
-            game_score=self.player.game_score,
+            game_score=self.current_player.game_score,
         )
-        return self._get_obs(), reward, terminated, truncated, self.turn_is_over, info
-
-    def reset_dice_and_holds_and_cards(self) -> None:
-        self.dice = DiceCounts()
-        self.holds = DiceCounts()
-        self.card = None
-
-    def reset_for_new_turn(self) -> None:
-        self.turn_is_over = True
-        if self.player is not None:
-            self.player.turn_count += 1
-        self.turn_scores.append(self.hold_score)
-        self.hold_score = 0
-        self.reset_dice_and_holds_and_cards()
-
-    def reset_for_new_game(self) -> tuple[Observation, None]:
-        self.hold_score = 0
-        self.reset_for_new_turn()
-        self.player = None
-        return self._get_obs(), None
+        return self._get_obs(), reward, turn_is_over, terminated, truncated, info
 
     def _get_obs(self) -> Observation:
         return Observation(
-            self.hold_score,
-            NUM_DICE_IN_GAME - sum(self.holds),
-            self.dice,
-            self.card,
+            last_action=self.last_action,
+            hold_score=self.current_player.hold_score,
+            dice=self.dice,
         )
+
+    def reset_for_new_turn(self, advance_to_next_player: bool = True) -> Observation:
+        if advance_to_next_player:
+            self.current_player.turn_count += 1
+            self.current_player = self.players[
+                (self.players.index(self.current_player) + 1) % len(self.players)
+            ]
+        self.last_action = None
+        self.dice = DiceCounts()
+        self.held_dice = DiceCounts()
+        return self._get_obs()
+
+    def reset_for_new_game(self) -> Observation:
+        for player in self.players:
+            player.turn_count = 0
+            player.hold_score = 0
+            player.game_score = 0
+        self.current_player = random.choice(self.players)
+        self.reset_for_new_turn(advance_to_next_player=False)
+        return self._get_obs()
