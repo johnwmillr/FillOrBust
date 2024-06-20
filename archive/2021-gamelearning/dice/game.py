@@ -62,7 +62,22 @@ def is_fill(held_dice: DiceCounts) -> bool:
 
 
 def convert_num_turns_to_reward(num_turns: int) -> float:
-    return 1 / num_turns
+    # return 1 / num_turns
+    if num_turns > 70:
+        return -0.5
+    elif num_turns > 60:
+        return -0.25
+    elif num_turns > 50:
+        return 0
+    elif num_turns > 45:
+        return 0.25
+    elif num_turns > 40:
+        return 0.5
+    elif num_turns > 35:
+        return 0.75
+    elif num_turns > 30:
+        return 1
+    return 1.5
 
 
 class FillOrBust:
@@ -83,12 +98,21 @@ class FillOrBust:
 
         self.last_action: ActionStr | None = action[0]
         self.actions.append(action)
-        if action[0] == "roll":
+        if action[0] == "inherit":
+            if action[1] is False:
+                self.inheritance = 0
+                self.dice = DiceCounts()
+        elif action[0] == "roll":
             assert isinstance(action[1], int)
             self.dice = roll_dice(action[1])
             if is_bust(self.dice):
                 self.current_player.hold_score = 0
+                self.inheritance = 0
                 turn_is_over = True
+
+            # Add the inheritance to the hold score (if there is any)
+            self.current_player.hold_score += self.inheritance
+            self.inheritance = 0
         elif action[0] == "hold":
             assert isinstance(action[1], DiceCounts)
             self.dice, self.held_dice = hold_dice(self.dice, self.held_dice, action[1])
@@ -97,18 +121,17 @@ class FillOrBust:
                 self.dice = DiceCounts()
                 self.held_dice = DiceCounts()
         elif action[0] == "stop":
+            self.inheritance = self.current_player.hold_score
             self.current_player.game_score += self.current_player.hold_score
             self.current_player.hold_score = 0
             turn_is_over = True
 
         # Check whether the game is over
         if self.current_player.game_score >= self.SCORE_NEEDED_TO_WIN:
-            reward = convert_num_turns_to_reward(self.current_player.turn_count)
-            terminated = True
-
-            self.current_player.num_turns_in_game.append(self.current_player.turn_count)
-            self.current_player.game_count += 1
             self.current_player.wins += 1
+            reward = convert_num_turns_to_reward(self.current_player.turn_count)
+            self.current_player.episode_rewards.append(reward)
+            terminated = True
 
         info = TrainingInfo(
             num_turns=self.current_player.turn_count,
@@ -121,25 +144,33 @@ class FillOrBust:
         return Observation(
             last_action=self.last_action,
             hold_score=self.current_player.hold_score,
+            inheritance=self.inheritance,
             dice=self.dice,
         )
 
     def reset_for_new_turn(self, advance_to_next_player: bool = True) -> Observation:
         if advance_to_next_player:
+            self.current_player.hold_score = 0
             self.current_player.turn_count += 1
             self.current_player = self.players[
                 (self.players.index(self.current_player) + 1) % len(self.players)
             ]
         self.last_action = None
-        self.dice = DiceCounts()
+
         self.held_dice = DiceCounts()
+        if self.inheritance == 0:
+            self.dice = DiceCounts()  # Keep dice around if there's inheritance
         return self._get_obs()
 
     def reset_for_new_game(self) -> Observation:
         for player in self.players:
+            if player.turn_count:
+                player.num_turns_in_game.append(player.turn_count)
+                player.game_count += 1
             player.turn_count = 0
             player.hold_score = 0
             player.game_score = 0
+        self.inheritance = 0
         self.current_player = random.choice(self.players)
         self.reset_for_new_turn(advance_to_next_player=False)
         return self._get_obs()

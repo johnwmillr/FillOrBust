@@ -48,11 +48,18 @@ def determine_available_actions(obs: Observation) -> list[ActionT]:
     Returns:
         list[ActionT]: A list of possible actions.
     """
-    if obs.last_action is None or obs.last_action == "stop":
-        return [("roll", NUM_DICE_IN_GAME)]
+    if obs.last_action is None and obs.inheritance > 0:
+        return [("inherit", True), ("inherit", False)]
+
+    # How many dice are available to roll?
+    if (num_dice_to_roll := sum(obs.dice)) == 0:
+        num_dice_to_roll = NUM_DICE_IN_GAME
+
+    if obs.last_action in [None, "inherit", "stop"]:
+        return [("roll", num_dice_to_roll)]
 
     if obs.last_action == "hold":
-        return [("roll", sum(obs.dice)), ("stop", None)]
+        return [("roll", num_dice_to_roll), ("stop", None)]
 
     # We just rolled, need to hold some dice
     possible_holds = determine_hold_options_from_dice(obs.dice)
@@ -103,6 +110,7 @@ class Agent:
         self.num_turns: list[int] = []
         self.rewards: list[float] = []
         self.game_scores: list[int] = []
+        self.episode_rewards: list[float] = []
         self.wins = 0
 
     def __repr__(self) -> str:
@@ -234,7 +242,8 @@ class SmartAgent(Agent):
 
         # Update the Q-value for this action
         self.q_values[obs][action] = current_q_value + self.lr * temporal_difference
-        self.training_error.append(temporal_difference)
+        if reward:
+            self.training_error.append(temporal_difference)
 
     def decay_epsilon(self) -> None:
         self.epsilon = max(self.final_epsilon, self.epsilon - self.epsilon_decay)

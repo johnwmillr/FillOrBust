@@ -138,14 +138,12 @@ def main(
         discount_factor=discount_factor,
     )
 
-    agent1 = SmartAgent("agent1", **kwargs)
-    # agent2 = SmartAgent("agent2", **kwargs)
-    agent2 = Agent("agent2")
-    agents: list[Agent] = [agent1]
+    smart = SmartAgent("smart", **kwargs)
+    dumb = Agent("dumb")
+    agents: list[Agent] = [smart, dumb]
 
     train(agents, n_episodes=n_episodes)
-    plot_training_metric(agent1, metric="num_turns")
-    # plot_training_metric(agent2, metric="num_turns")
+    plot_training_metric(smart, metric="num_turns")
 
 
 if __name__ == "__main__":

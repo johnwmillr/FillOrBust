@@ -36,4 +36,5 @@ class TrainingInfo:
 class Observation(NamedTuple):
     last_action: ActionStr | None
     hold_score: int
+    inheritance: int
     dice: DiceCounts
