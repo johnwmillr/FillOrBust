@@ -82,12 +82,12 @@ def convert_num_turns_to_reward(num_turns: int) -> float:
 
 class FillOrBust:
 
-    SCORE_NEEDED_TO_WIN = 10000
+    SCORE_NEEDED_TO_WIN = 10_000
     current_player: Agent
+    card: Card | None
 
     def __init__(self, players: list[Agent]) -> None:
         self.players = players
-        self.actions: list[ActionT] = []
         self.reset_for_new_game()
 
     def step(
@@ -97,34 +97,47 @@ class FillOrBust:
         reward = 0
 
         self.last_action: ActionStr | None = action[0]
-        self.actions.append(action)
-        if action[0] == "inherit":
-            if action[1] is False:
-                self.inheritance = 0
-                self.dice = DiceCounts()
-        elif action[0] == "roll":
-            assert isinstance(action[1], int)
-            self.dice = roll_dice(action[1])
-            if is_bust(self.dice):
-                self.current_player.hold_score = 0
-                self.inheritance = 0
-                turn_is_over = True
+        match action[0]:
+            case "inherit":
+                if action[1] is False:
+                    self.inheritance = 0
+                    self.dice = DiceCounts()
+            case "draw":
+                self.card = draw_card()
+                if self.card.category == "no_dice":
+                    self.current_player.hold_score = 0
+                    self.inheritance = 0
+                    self.card = None
+                    turn_is_over = True
+                    # self.reset_for_new_turn()  # XXX: This hides the no dice card from ever being observed—is that okay?
+            case "roll":
+                self.dice = roll_dice(NUM_DICE_IN_GAME - sum(self.held_dice))
+                if is_bust(self.dice):
+                    self.current_player.hold_score = 0
+                    self.inheritance = 0
+                    turn_is_over = True
 
-            # Add the inheritance to the hold score (if there is any)
-            self.current_player.hold_score += self.inheritance
-            self.inheritance = 0
-        elif action[0] == "hold":
-            assert isinstance(action[1], DiceCounts)
-            self.dice, self.held_dice = hold_dice(self.dice, self.held_dice, action[1])
-            self.current_player.hold_score += calc_score(action[1])
-            if is_fill(self.held_dice):
-                self.dice = DiceCounts()
-                self.held_dice = DiceCounts()
-        elif action[0] == "stop":
-            self.inheritance = self.current_player.hold_score
-            self.current_player.game_score += self.current_player.hold_score
-            self.current_player.hold_score = 0
-            turn_is_over = True
+                # Add the inheritance to the hold score (if there is any)
+                self.current_player.hold_score += self.inheritance
+                self.inheritance = 0
+            case "hold":
+                assert isinstance(action[1], DiceCounts)
+                self.dice, self.held_dice = hold_dice(
+                    self.dice, self.held_dice, action[1]
+                )
+                self.current_player.hold_score += calc_score(action[1])
+                if is_fill(self.held_dice):
+                    if self.card is not None:
+                        self.current_player.hold_score += self.card.bonus
+                    self.dice = DiceCounts()
+                    self.held_dice = DiceCounts()
+            case "stop":
+                self.inheritance = self.current_player.hold_score
+                self.current_player.game_score += self.current_player.hold_score
+                self.current_player.hold_score = 0
+                turn_is_over = True
+            case _:
+                raise ValueError(f"Invalid action: {action[0]}")
 
         # Check whether the game is over
         if self.current_player.game_score >= self.SCORE_NEEDED_TO_WIN:
@@ -146,6 +159,7 @@ class FillOrBust:
             hold_score=self.current_player.hold_score,
             inheritance=self.inheritance,
             dice=self.dice,
+            card=self.card,
         )
 
     def reset_for_new_turn(self, advance_to_next_player: bool = True) -> Observation:
@@ -155,11 +169,13 @@ class FillOrBust:
             self.current_player = self.players[
                 (self.players.index(self.current_player) + 1) % len(self.players)
             ]
-        self.last_action = None
 
+        # Reset the turn state
+        # self.last_action = None
+        self.card = None
         self.held_dice = DiceCounts()
         if self.inheritance == 0:
-            self.dice = DiceCounts()  # Keep dice around if there's inheritance
+            self.dice = DiceCounts()  # Keep dice around if there's an inheritance
         return self._get_obs()
 
     def reset_for_new_game(self) -> Observation:
@@ -170,6 +186,7 @@ class FillOrBust:
             player.turn_count = 0
             player.hold_score = 0
             player.game_score = 0
+        self.last_action = None
         self.inheritance = 0
         self.current_player = random.choice(self.players)
         self.reset_for_new_turn(advance_to_next_player=False)

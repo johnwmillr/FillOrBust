@@ -38,3 +38,13 @@ class Observation(NamedTuple):
     hold_score: int
     inheritance: int
     dice: DiceCounts
+    card: Card | None
+
+    def __str__(self) -> str:
+        return (
+            f"Last action: {self.last_action}\n"
+            f"Hold score: {self.hold_score}\n"
+            f"Inheritance: {self.inheritance}\n"
+            f"Dice: {self.dice}\n"
+            f"Card: {self.card}"
+        )

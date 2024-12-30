@@ -147,70 +147,78 @@ def test_same_roll_requirement_for_triples(
 @pytest.mark.parametrize(
     ["obs", "expected"],
     [
-        # pytest.param(
-        #     Observation(0, 6, DiceCounts(), make_a_bonus_card(300)),
-        #     [("roll", None)],
-        #     id="Drew a card, haven't rolled.",
-        # ),
-        # pytest.param(
-        #     Observation(0, 6, DiceCounts(1, 0, 0, 0, 0, 0), make_a_bonus_card(300)),
-        #     [("hold", DiceCounts(1, 0, 0, 0, 0, 0))],
-        #     id="Rolled 1 one.",
-        # ),
-        # pytest.param(
-        #     Observation(100, 5, DiceCounts(), make_a_bonus_card(300)),
-        #     [("roll", None), ("stop", None)],
-        #     id="Held dice, can either roll or stop.",
-        # ),
-        # pytest.param(
-        #     Observation(100, 3, DiceCounts(), make_a_fill_1000()),
-        #     [("roll", None)],
-        #     id="Drew a Fill 1000, must roll.",
-        # ),
-        # pytest.param(
-        #     Observation(0, 6, DiceCounts(2, 2, 2, 0, 0, 0), make_a_bonus_card(300)),
-        #     [
-        #         ("hold", DiceCounts(1, 0, 0, 0, 0, 0)),
-        #         ("hold", DiceCounts(2, 0, 0, 0, 0, 0)),
-        #     ],
-        #     id="Rolled 2 ones.",
-        # ),
-        # pytest.param(
-        #     Observation(150, 4, DiceCounts(0, 3, 0, 0, 1, 0), make_a_bonus_card(300)),
-        #     [
-        #         ("hold", DiceCounts(0, 3, 0, 0, 0, 0)),
-        #         ("hold", DiceCounts(0, 3, 0, 0, 1, 0)),
-        #         ("hold", DiceCounts(0, 0, 0, 0, 1, 0)),
-        #     ],
-        #     id="Rolled a triple two and 1 five.",
-        # ),
-        # pytest.param(
-        #     Observation(350, 2, DiceCounts(), make_a_bonus_card(300)),
-        #     [("roll", None), ("stop", None)],
-        #     id="Holding dice, could roll or stop.",
-        # ),
-        # pytest.param(
-        #     Observation(0, 6, DiceCounts(), None),
-        #     [("draw", None)],
-        #     id="No card, must draw.",
-        # ),
-        # pytest.param(
-        #     Observation(250, 1, DiceCounts(), make_a_must_bust_card()),
-        #     [("roll", None)],
-        #     id="Must bust, must roll.",
-        # ),
         pytest.param(
-            Observation(None, 0, DiceCounts()),
-            [("roll", NUM_DICE_IN_GAME)],
-            id="New turn, must roll.",
+            Observation("draw", 0, 0, DiceCounts(), make_a_bonus_card(300)),
+            [("roll", None)],
+            id="Drew a card, haven't rolled.",
         ),
         pytest.param(
-            Observation("hold", 1500, DiceCounts()),
-            [("roll", NUM_DICE_IN_GAME), ("stop", None)],
-            id="Just held a straight, can roll or stop.",
+            Observation(
+                "roll", 0, 0, DiceCounts(1, 0, 0, 0, 0, 0), make_a_bonus_card(300)
+            ),
+            [("hold", DiceCounts(1, 0, 0, 0, 0, 0))],
+            id="Rolled 1 one.",
         ),
         pytest.param(
-            Observation("roll", 150, DiceCounts(2, 0, 0, 0, 0, 1)),
+            Observation("hold", 150, 0, DiceCounts(0, 2, 1), make_a_bonus_card(300)),
+            [("roll", None), ("stop", None)],
+            id="Held dice, can either roll or stop.",
+        ),
+        pytest.param(
+            Observation("draw", 0, 0, DiceCounts(), make_a_fill_1000()),
+            [("roll", None)],
+            id="Drew a Fill 1000, must roll.",
+        ),
+        pytest.param(
+            Observation(
+                "roll", 0, 0, DiceCounts(2, 2, 2, 0, 0, 0), make_a_bonus_card(300)
+            ),
+            [
+                ("hold", DiceCounts(1, 0, 0, 0, 0, 0)),
+                ("hold", DiceCounts(2, 0, 0, 0, 0, 0)),
+            ],
+            id="Rolled 2 ones.",
+        ),
+        pytest.param(
+            Observation(
+                "roll", 0, 0, DiceCounts(0, 3, 0, 0, 1, 0), make_a_bonus_card(300)
+            ),
+            [
+                ("hold", DiceCounts(0, 3, 0, 0, 0, 0)),
+                ("hold", DiceCounts(0, 3, 0, 0, 1, 0)),
+                ("hold", DiceCounts(0, 0, 0, 0, 1, 0)),
+            ],
+            id="Rolled a triple two and 1 five.",
+        ),
+        pytest.param(
+            Observation("hold", 300, 0, DiceCounts(two=2), make_a_bonus_card(300)),
+            [("roll", None), ("stop", None)],
+            id="Holding dice, could roll or stop.",
+        ),
+        pytest.param(
+            Observation(None, 0, 0, DiceCounts(), None),
+            [("draw", None)],
+            id="New turn, must draw.",
+        ),
+        pytest.param(
+            Observation("stop", 0, 0, DiceCounts(), None),
+            [("draw", None)],
+            id="New turn after a stop, must draw.",
+        ),
+        pytest.param(
+            Observation("hold", 150, 0, DiceCounts(three=2), make_a_must_bust_card()),
+            [("roll", None)],
+            id="Have a Must Bust, must roll.",
+        ),
+        pytest.param(
+            Observation("hold", 1500, 0, DiceCounts(), make_a_bonus_card(300)),
+            [("draw", None), ("stop", None)],
+            id="Just held a straight, can draw or stop.",
+        ),
+        pytest.param(
+            Observation(
+                "roll", 150, 0, DiceCounts(2, 0, 0, 0, 0, 1), make_a_bonus_card(300)
+            ),
             [
                 ("hold", DiceCounts(1, 0, 0, 0, 0, 0)),
                 ("hold", DiceCounts(2, 0, 0, 0, 0, 0)),
@@ -218,9 +226,14 @@ def test_same_roll_requirement_for_triples(
             id="Rolled two ones.",
         ),
         pytest.param(
-            Observation("stop", 150, DiceCounts(2, 0, 0, 0, 0, 1)),
-            [("roll", NUM_DICE_IN_GAME)],
-            id="Just stopped, must roll.",
+            Observation("stop", 0, 500, DiceCounts(2, 0, 0, 0, 0, 1), None),
+            [("inherit", True), ("inherit", False)],
+            id="New turn with an inheritance, must decide whether to take it.",
+        ),
+        pytest.param(
+            Observation("hold", 500, 0, DiceCounts(), make_a_bonus_card(300)),
+            [("draw", None), ("stop", None)],
+            id="Filled. Must either stop or draw.",
         ),
     ],
 )
@@ -234,7 +247,15 @@ def test_determine_available_actions(obs: Observation, expected: list[ActionT]) 
 @pytest.mark.parametrize(
     ["dice", "expected_holds"],
     [
-        ((1, 1, 1, 1, 1, 1), [(1, 1, 1, 1, 1, 1)]),  # Straight
+        (
+            (1, 1, 1, 1, 1, 1),
+            [
+                (1, 0, 0, 0, 0, 0),
+                (0, 0, 0, 0, 1, 0),
+                (1, 0, 0, 0, 1, 0),
+                (1, 1, 1, 1, 1, 1),
+            ],
+        ),  # Straight
         ((1, 2, 2, 1, 0, 0), [(1, 0, 0, 0, 0, 0)]),  # One 1
         ((0, 0, 0, 0, 1, 0), [(0, 0, 0, 0, 1, 0)]),  # One 5
         (

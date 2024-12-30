@@ -42,28 +42,82 @@ def determine_available_actions_v1(obs: Observation) -> list[ActionT]:
     return options
 
 
-def determine_available_actions(obs: Observation) -> list[ActionT]:
+def determine_available_actions_v2(obs: Observation) -> list[ActionT]:
     """Determine what actions are available based on the current state
 
     Returns:
         list[ActionT]: A list of possible actions.
     """
     if obs.last_action is None and obs.inheritance > 0:
-        return [("inherit", True), ("inherit", False)]
+        return [("inherit", False), ("inherit", True)]
 
-    # How many dice are available to roll?
-    if (num_dice_to_roll := sum(obs.dice)) == 0:
-        num_dice_to_roll = NUM_DICE_IN_GAME
+    if obs.last_action in [None, "inherit"] and obs.card is None:
+        return [("draw", None)]
 
-    if obs.last_action in [None, "inherit", "stop"]:
-        return [("roll", num_dice_to_roll)]
+    if obs.last_action == "hold" and sum(obs.dice) == 0:
+        # Just filled, can either draw or stop
+        return [("draw", None), ("stop", None)]
+
+    if obs.last_action == "draw":
+        return [("roll", None)]
 
     if obs.last_action == "hold":
-        return [("roll", num_dice_to_roll), ("stop", None)]
+        if obs.card and obs.card.category != "must_bust":
+            return [("roll", None), ("stop", None)]
+        return [("roll", None)]
 
+    # if obs.last_action == "roll":
     # We just rolled, need to hold some dice
     possible_holds = determine_hold_options_from_dice(obs.dice)
     return list(("hold", hold) for hold in possible_holds)
+
+    raise ValueError(f"Can't determine actions for state: {obs}")
+
+
+def determine_available_actions(obs: Observation) -> list[ActionT]:
+    """Determine what actions are available based on the current state
+
+    Returns:
+        list[ActionT]: A list of possible actions.
+    """
+    # There is an inheritance, must choose to accept or not
+    if obs.last_action == "stop" and obs.inheritance:
+        return [("inherit", False), ("inherit", True)]
+
+    # Conditions leading to drawing
+    if (
+        obs.last_action is None  # New game
+        or obs.last_action == "inherit"  # After inheritance decision
+        or obs.last_action == "stop"  # Stopped with no inheritance
+        or (obs.last_action == "draw" and obs.card is None)  # Drew a No Dice
+        or (obs.last_action == "roll" and sum(obs.dice) == 0)  # Busted
+    ):
+        return [("draw", None)]
+
+    # Drew a card, ready to roll
+    if obs.last_action == "draw" and obs.card is not None:
+        return [("roll", None)]
+
+    # Just held some dice, can either roll or stop
+    if obs.last_action == "hold":
+        if obs.card:
+            if obs.card.category == "must_bust" or (
+                obs.card.must_fill and sum(obs.dice) != 0
+            ):
+                return [("roll", None)]
+            if sum(obs.dice) == 0:  # You've filled
+                return [("draw", None), ("stop", None)]
+            return [("roll", None), ("stop", None)]
+        raise Exception(f"How did we get here? {obs=}")
+
+    # We just rolled, need to hold some dice
+    if obs.last_action == "roll" and sum(obs.dice) > 0:
+        options: list[ActionT] = []
+        possible_holds = determine_hold_options_from_dice(obs.dice)
+        options.extend(("hold", hold) for hold in possible_holds)
+        return options
+
+    raise ValueError(f"Can't determine actions for state: {obs}")
 
 
 def determine_hold_options_from_dice(dice: DiceCounts) -> list[DiceCounts]:
@@ -72,7 +126,12 @@ def determine_hold_options_from_dice(dice: DiceCounts) -> list[DiceCounts]:
 
     # Check for a straight
     if dice == DiceCounts(1, 1, 1, 1, 1, 1):
-        return [DiceCounts(1, 1, 1, 1, 1, 1)]
+        return [
+            DiceCounts(five=1),
+            DiceCounts(1),
+            DiceCounts(one=1, five=1),
+            DiceCounts(1, 1, 1, 1, 1, 1),
+        ]
 
     # Keep track of how many times a particular dice can be held
     options: defaultdict[int, tuple[int, ...]] = defaultdict(tuple[int])

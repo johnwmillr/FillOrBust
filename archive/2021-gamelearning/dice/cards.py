@@ -13,9 +13,9 @@ class Card:
         self.bonus = bonus
         self.must_fill = must_fill
 
-    def __eq__(self, other: "Card") -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, Card):
-            return False
+            raise NotImplementedError
         return self.title == other.title
 
     def __hash__(self) -> int:
