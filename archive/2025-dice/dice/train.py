@@ -31,7 +31,7 @@ def train(
         while not done:
             # Pick an action and execute it
             action = agent.get_action(obs)
-            next_obs, reward, terminated, truncated, info = env.step(action)
+            next_obs, reward, terminated, truncated, stats = env.step(action)
 
             # Update the agent
             agent.update(
@@ -40,12 +40,15 @@ def train(
                 reward,
                 terminated,
                 next_obs,
-                info if terminated or truncated else None,
+                stats if terminated or truncated else None,
             )
 
             # Update the current obs and whether or not the episode is complete
             obs = next_obs
             done = terminated or truncated
+
+    # Format the training stats as a DataFrame
+    agent.training_stats = pd.DataFrame(agent._training_stats)
 
 
 def plot_training_metric(
@@ -54,7 +57,11 @@ def plot_training_metric(
     downsample: bool = True,
 ) -> None:
     # Format the data
-    data = getattr(agent, metric)
+    if agent.training_stats is None:
+        raise ValueError("Agent has not been trained yet.")
+    if metric not in agent.training_stats.columns:
+        raise ValueError(f"Invalid metric: {metric}")
+    data = agent.training_stats[metric]
     if downsample:
         data = data[:: len(data) // min(2500, len(data))]
 
@@ -103,7 +110,7 @@ def main(
     epsilon: float | None = None,
     discount_factor: float | None = None,
     use_smart_agent: bool = True,
-) -> Agent:
+) -> SmartAgent:
     """Train agents to play Fill or Bust.
 
     Args:
@@ -123,9 +130,6 @@ def main(
     else:
         agent = Agent("dumb")
     train(agent, n_episodes=n_episodes)
-    agent.turn_count = [ts[1] for ts in agent.training_stats]
-
-    # plot_training_metric(smart, metric="num_turns")
     return agent
 
 

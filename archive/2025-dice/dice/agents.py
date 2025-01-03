@@ -1,6 +1,8 @@
 from collections import defaultdict
 import random
 
+import pandas as pd
+
 from dice.types import Action, Observation, Terminated, TrainingStats
 
 
@@ -14,7 +16,8 @@ def determine_available_actions(obs: Observation) -> list[Action]:
 class Agent:
     def __init__(self, name: str) -> None:
         self.name = name
-        self.training_stats: list[TrainingStats] = []
+        self._training_stats: list[TrainingStats] = []
+        self.training_stats: pd.DataFrame | None = None
 
     def __repr__(self) -> str:
         return f"<Agent: {self.name}>"
@@ -39,7 +42,7 @@ class Agent:
             return
 
         # Update the agent's training stats
-        self.training_stats.append(stats)
+        self._training_stats.append(stats)
 
 
 class SmartAgent(Agent):
