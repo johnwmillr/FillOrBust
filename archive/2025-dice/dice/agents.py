@@ -1,16 +1,69 @@
-from collections import defaultdict
+from __future__ import annotations
+
 import random
+from collections import defaultdict
+from itertools import product
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from dice.types import Action, Observation, Terminated, TrainingStats
+from dice.constants import NUM_DICE_IN_GAME
+from dice.types import Action, DiceCounts, Observation, Terminated, TrainingStats
+
+if TYPE_CHECKING:
+    from dice.game import FillOrBust  # Only imported for type hints
 
 
-def determine_available_actions(obs: Observation) -> list[Action]:
+def determine_available_actions(env: FillOrBust) -> list[Action]:
     """Determines the available actions based on the current state of the game."""
-    if obs.num_dice_remaining == 0 or obs.num_dice_remaining == 6:  # New game or busted
-        return ["roll"]
-    return ["roll", "stop"]  # Rolled some pointers
+
+    # TODO: this should be a (class?) method of FillOrBust
+
+    if sum(env.dice) == 0:
+        if not any(env.held_dice):  # New game or busted
+            return [("roll", None)]
+        return [("roll", None), ("stop", None)]  # Have some held dice, can roll or stop
+    if any(env.dice):  # Just rolled, must hold
+        return [("hold", hold) for hold in determine_hold_options_from_dice(env.dice)]
+    raise ValueError(f"Can't determine action for game state: {env._get_obs()}")
+
+
+def determine_hold_options_from_dice(dice: DiceCounts) -> list[DiceCounts]:
+    if sum(dice) == 0:
+        return [DiceCounts()]
+
+    # Check for a straight
+    if dice == DiceCounts(1, 1, 1, 1, 1, 1):
+        return [
+            DiceCounts(fives=1),
+            DiceCounts(1),
+            DiceCounts(ones=1, fives=1),
+            DiceCounts(1, 1, 1, 1, 1, 1),
+        ]
+
+    # Keep track of how many times a particular dice can be held
+    options: defaultdict[int, tuple[int, ...]] = defaultdict(tuple[int])
+    for n in range(1, NUM_DICE_IN_GAME + 1):
+        options[n] = (0,)
+
+    # Check for singles
+    for die, count in enumerate(dice, start=1):
+        # Check for triples
+        if count >= 3:
+            options[die] += (3,)
+        if count == 6:
+            options[die] += (6,)
+
+        # Check for singles
+        if count and die in [1, 5]:
+            options[die] += tuple(range(count + 1))
+
+    # Translate dice options to holds
+    combos = product(*options.values())
+    holds = set(
+        DiceCounts(*item) for item in combos if item != ((0,) * NUM_DICE_IN_GAME)
+    )
+    return sorted(holds)
 
 
 class Agent:
@@ -22,12 +75,12 @@ class Agent:
     def __repr__(self) -> str:
         return f"<Agent: {self.name}>"
 
-    def get_action(self, obs: Observation) -> Action:
+    def get_action(self, env: FillOrBust, obs: Observation) -> Action:
         """
         Returns a random action from the list of available actions.
         """
         # Explore (choose a random action)
-        return random.choice(determine_available_actions(obs))
+        return random.choice(determine_available_actions(env))
 
     def update(
         self,
@@ -73,7 +126,7 @@ class SmartAgent(Agent):
     def __repr__(self) -> str:
         return f"<SmartAgent: {self.name}>"
 
-    def get_action(self, obs: Observation) -> Action:
+    def get_action(self, env: FillOrBust, obs: Observation) -> Action:
         """
         Returns the best action with probability (1 - epsilon)
         otherwise a random action with probability epsilon to ensure exploration.
@@ -92,7 +145,7 @@ class SmartAgent(Agent):
                 return best_action
 
         # Explore (choose a random action)
-        return super().get_action(obs)
+        return super().get_action(env, obs)
 
     def update(
         self,

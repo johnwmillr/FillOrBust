@@ -3,8 +3,8 @@ from unittest.mock import patch
 import pytest
 
 from dice.agents import Agent, determine_available_actions
-from dice.game import calc_score, is_fill, roll_dice
-from dice.types import Action, DiceCounts, Observation
+from dice.game import FillOrBust, calc_score, hold_dice, is_fill, roll_dice
+from dice.types import Action, DiceCounts
 
 
 # ------------------------------ #
@@ -21,6 +21,35 @@ from dice.types import Action, DiceCounts, Observation
 def test_roll_dice(dice: list[int], expected_counts: DiceCounts) -> None:
     with patch("dice.game.random.randint", side_effect=dice):
         assert roll_dice(len(dice)) == expected_counts
+
+
+# ------------------------------ #
+# Test the `hold_dice` function
+# ------------------------------ #
+@pytest.mark.parametrize(
+    ["current_holds", "new_holds", "expected_holds"],
+    [
+        pytest.param(
+            DiceCounts(0, 0, 0, 0, 0, 0),
+            DiceCounts(1, 1, 1, 1, 1, 1),
+            DiceCounts(1, 1, 1, 1, 1, 1),
+            id="Hold a straight",
+        ),
+        pytest.param(
+            DiceCounts(0, 0, 0, 0, 1, 0),
+            DiceCounts(1, 0, 0, 0, 0, 0),
+            DiceCounts(1, 0, 0, 0, 1, 0),
+            id="Hold a one",
+        ),
+    ],
+)
+def test_hold_dice(
+    current_holds: DiceCounts,
+    new_holds: DiceCounts,
+    expected_holds: DiceCounts,
+) -> None:
+    updated_holds = hold_dice(current_holds, new_holds)
+    assert updated_holds == expected_holds
 
 
 # --------------------------- #
@@ -73,16 +102,22 @@ def agent() -> Agent:
     ["obs", "expected"],
     [
         pytest.param(
-            Observation(num_dice_remaining=0, held_score=0),
-            ["roll"],
+            fill_or_bust,
+            [("roll", None)],
             id="New game. Must roll.",
         ),
         pytest.param(
-            Observation(num_dice_remaining=3, held_score=100),
-            ["roll", "stop"],
-            id="Rolled some pointers. Can roll or stop.",
+            fill_or_bust(DiceCounts(ones=2, twos=2, fives=1), DiceCounts(ones=1)),
+            [
+                ("hold", DiceCounts(ones=1)),
+                ("hold", DiceCounts(ones=2)),
+                ("hold", DiceCounts(ones=1, fives=1)),
+                ("hold", DiceCounts(ones=2, fives=1)),
+                ("hold", DiceCounts(fives=1)),
+            ],
+            id="Rolled some pointers. Must hold.",
         ),
     ],
 )
-def test_determine_available_actions(obs: Observation, expected: list[Action]) -> None:
-    assert determine_available_actions(obs) == sorted(expected)
+def test_determine_available_actions(env: FillOrBust, expected: list[Action]) -> None:
+    assert determine_available_actions(env) == sorted(expected)

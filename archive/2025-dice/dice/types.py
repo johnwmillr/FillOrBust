@@ -19,14 +19,20 @@ class DiceCounts(NamedTuple):
     sixes: int = 0
 
 
-class Observation(NamedTuple):
-    """A class representing the state of the game."""
-
-    num_dice_remaining: int
-    held_score: int  # The yet-to-be-banked score for the current turn
-
-
-Action = Literal["roll", "stop"]
+ActionName = Literal["hold", "roll", "stop"]
+Action = tuple[ActionName, DiceCounts | None]
 Reward = float
 Truncated = bool
 Terminated = bool
+
+
+class Observation(NamedTuple):
+    """A class representing the state of the game."""
+
+    dice: DiceCounts
+    num_dice: int
+    held_score: int  # The yet-to-be-banked score for the current turn
+    last_action: ActionName | None
+
+    def __str__(self) -> str:
+        return f"<Observation: dice: {self.dice} | num_dice: {self.num_dice} | held_score: {self.held_score} | last_action: {self.last_action}>"

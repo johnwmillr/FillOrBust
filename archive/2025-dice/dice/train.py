@@ -12,7 +12,7 @@ from dice.game import FillOrBust
 
 
 def train(
-    agent: Agent,
+    agent: SmartAgent,
     *,
     n_episodes: int = 1000,
 ) -> None:
@@ -30,7 +30,7 @@ def train(
         # Play one episode (i.e. one game of Fill or Bust)
         while not done:
             # Pick an action and execute it
-            action = agent.get_action(obs)
+            action = agent.get_action(env, obs)
             next_obs, reward, terminated, truncated, stats = env.step(action)
 
             # Update the agent
@@ -96,7 +96,7 @@ def plot_training_metric(
         .mark_point(opacity=0.2, color="orange")
         .encode(
             x="episode",
-            y=alt.Y(f"{metric}:Q", scale=alt.Scale(domain=[0, 80])).title(metric),
+            y=alt.Y(f"{metric}:Q", scale=alt.Scale(domain=[0, 100])).title(metric),
         )
     )
 
