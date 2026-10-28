@@ -25,7 +25,10 @@ class Client(object):
         self.email = data['email']
         self.name = data['name']
         self.games = data['games']
-        self.game_number = game_number if game_number else self.games[-1]['id']
+        if self.games:
+            self.game_number = game_number if game_number else self.games[-1]['id']
+        else:
+            self.game_number = None
         self.update_game()
 
     def __authorize__(self, username, password):
@@ -67,9 +70,9 @@ class Client(object):
             print(f'Success! Created game #{game_number}.')
 
         # Update the Client's game to the new game
-        self.change_game(game_number, r=r)
+        self.switch_games(game_number, r=r)
 
-    def change_game(self, game_number, r=None):
+    def switch_games(self, game_number, r=None):
         self.game_number = game_number
         self.update_game(r)
 
@@ -114,7 +117,7 @@ class Player(Client):
         super(Player, self).__init__(*args, **kwargs)
 
     def take_turn(self):
-        player = self.game.current_player[0]
+        player = self.game.current_player
         actions = self.game.invalid_actions
         if self.verbose:
             print(f"Current player: {player['name']}")
