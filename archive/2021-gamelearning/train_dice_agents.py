@@ -92,7 +92,10 @@ def plot_training_metric(
     points = (
         alt.Chart(source)
         .mark_point(opacity=0.2, color="orange")
-        .encode(x="episode", y=alt.Y(f"{metric}:Q").title(metric))
+        .encode(
+            x="episode",
+            y=alt.Y(f"{metric}:Q", scale=alt.Scale(domain=[0, 90])).title(metric),
+        )
     )
 
     chart = (points + line).properties(width=400, height=250)
