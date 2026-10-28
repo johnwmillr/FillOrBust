@@ -12,7 +12,7 @@ from dice.game import FillOrBust
 
 
 def train(
-    agent: SmartAgent,
+    agent: Agent,
     *,
     n_episodes: int = 1000,
 ) -> None:

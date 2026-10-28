@@ -31,7 +31,7 @@ class Observation(NamedTuple):
 
     dice: DiceCounts
     num_dice: int
-    held_score: int  # The yet-to-be-banked score for the current turn
+    held_score: int
     last_action: ActionName | None
 
     def __str__(self) -> str:
