@@ -1,0 +1,1 @@
+NUM_DICE_IN_GAME = 6
