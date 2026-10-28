@@ -1,0 +1,14 @@
+*.DS_Store
+*.m~
+*.exe
+*.png
+
+*_v*.m
+
+__pycache__
+*pyc
+
+.ipynb_checkpoints
+
+Old/
+scratch/
